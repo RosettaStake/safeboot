@@ -80,13 +80,11 @@ fi
 #
 # Extract the signature from the UEFI variable, skipping
 # the four-byte UEFI variable header.
-
-VERSION="$(tpm2 nvread "$TPM_NV_VERSION" | bin2hex)"
+VERSION="$(tpm2 nvread "$TPM_NV_VERSION" --size 8 | bin2hex)"
 TPM_SESSION_TYPE=policy
 TPM_POLICY_SIG="$TMP/pcr.policy.sig"
 
 efivar_read "$PCR_SIGNATURE" > "$TPM_POLICY_SIG"
-
 tpm2_create_policy "" "$VERSION"
 
 tpm2 flushcontext --transient-object
@@ -105,7 +103,11 @@ tpm2_unseal()
 
 	# Successfully unsealed, extend the bootmode PCR
 	warn "TPM disk key unsealed"
-	echo -n postboot | tpm2_extend "$BOOTMODE_PCR"
+	if [ -r "/tmp/unseal-once" ]; then
+		echo -n postboot | tpm2_extend "$BOOTMODE_PCR"
+	else
+		touch "/tmp/unseal-once"
+	fi
 	exit 0
 }
 

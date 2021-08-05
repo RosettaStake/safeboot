@@ -499,6 +499,7 @@ pcrs-sign() {
 
 	tpm2 nvread \
 		"$TPM_NV_VERSION" \
+		--size 8 \
 		> "$TMP/nv_version.bin" \
 	|| die "Unable to read TPM version $TPM_NV_VERSION"
 	VERSION="$(xxd -g8 "$TMP/nv_version.bin" | awk '{print $2}')"
@@ -515,9 +516,12 @@ pcrs-sign() {
 	# with EFI_EV_SEPARATOR and then the PE hash of the EFI_BOOT_APPLICATION
 	linux_hash="$(sbsign.safeboot --hash-only "$linux" || die "unable to hash")"
 	ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend 0)"
-	pcr4_computed="$(echo -n "${ev_sep}${linux_hash}" | hex2bin | sha256)"
+	#pcr4_computed="$(echo -n "${ev_sep}${linux_hash}" | hex2bin | sha256)"
+	ev_act="$(echo -n "Calling EFI Application from Boot Option" | tpm2_trial_extend 0)"
+        ex_ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend "$ev_act")"
+        pcr4_computed="$(echo -n "${ex_ev_sep}${linux_hash}" | hex2bin | sha256)"
 
-	pcr2_read="$(tpm2 pcrread sha256:2 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
+	pcr2_read="$(tpm2 pcrread sha256:3 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 	pcr4_read="$(tpm2 pcrread sha256:4 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 
 	# HACK: this assumes PCR2 is the second in the list
@@ -636,19 +640,33 @@ luks-seal() {
 		warn "!!! $PREFIX/usr/sbin/safeboot is not installed; this will probably not work"
 	fi
 
-	if [ "$(wc -l < "$PREFIX/etc/crypttab")" -ne 1 ]; then
-		die "!!! $PREFIX/etc/crypttab must have only one entry"
-	fi
+#	if [ "$(wc -l < "$PREFIX/etc/crypttab")" -ne 1 ]; then
+#		die "!!! $PREFIX/etc/crypttab must have only one entry"
+#	fi
 
 	# Determine which device is the cryptdisk
+	#uuid="$(cut -d' ' -f2 $PREFIX/etc/crypttab)"
+	#if [ -z "$uuid" ]; then
+#		die "Unable to find UUID in crypttab"
+#	fi
+#	dev=$(blkid -U "${uuid#UUID=}")
+#	if [ -z "$dev" ]; then
+#		die "Unable to find device for $uuid"
+#	fi
+
 	uuid="$(cut -d' ' -f2 $PREFIX/etc/crypttab)"
 	if [ -z "$uuid" ]; then
-		die "Unable to find UUID in crypttab"
+                die "Unable to find UUID in crypttab"
 	fi
-	dev=$(blkid -U "${uuid#UUID=}")
-	if [ -z "$dev" ]; then
-		die "Unable to find device for $uuid"
-	fi
+	list=($uuid)
+	devs=()
+	for v in "${list[@]}"; do
+        	t=$(blkid -U "${v#UUID=}")
+        	if [ -z "$t" ]; then
+                	die "Unable to find device for $v"
+        	fi
+        	devs+=($t)
+	done
 
 	# Use a tmpfs mount instead of just a temp directory so that
 	# the disk encryption key doesn't touch a persistent disk.
@@ -756,29 +774,31 @@ luks-seal() {
 	fi
 
 	# ask for the disk encryption key
-	for tries in 1 2 3 fail; do
-		read -r -s -p "$dev: Current recovery password: " recovery_key
-		echo
-		echo -n "$recovery_key" > "$TMP/recovery.key"
+	for dev in "${devs[@]}"; do
+		for tries in 1 2 3 fail; do
+			read -r -s -p "$dev: Current recovery password: " recovery_key
+			echo
+			echo -n "$recovery_key" > "$TMP/recovery.key"
 
-		warn "Removing old LUKS TPM key (if it exists)"
-		cryptsetup luksKillSlot \
-			--key-file "$TMP/recovery.key" \
-			"$dev" $KEYSLOT \
-		|| warn "$dev: Unable to remove old key slot (ignored)"
+			warn "Removing old LUKS TPM key (if it exists)"
+			cryptsetup luksKillSlot \
+				--key-file "$TMP/recovery.key" \
+				"$dev" $KEYSLOT \
+			|| warn "$dev: Unable to remove old key slot (ignored)"
 
-		warn "Adding new LUKS TPM key"
-		cryptsetup luksAddKey \
-			--key-file "$TMP/recovery.key" \
-			--key-slot $KEYSLOT \
-			"$dev" "$TMP/key.bin" \
-		&& break
+			warn "Adding new LUKS TPM key"
+			cryptsetup luksAddKey \
+				--key-file "$TMP/recovery.key" \
+				--key-slot $KEYSLOT \
+				"$dev" "$TMP/key.bin" \
+			&& break
 
-		warn "$dev: Unable to add key slot"
+			warn "$dev: Unable to add key slot"
 
-		if [ $tries == fail ]; then
-			die "$dev: Unable to add key"
-		fi
+			if [ $tries == fail ]; then
+				die "$dev: Unable to add key"
+			fi
+		done
 	done
 
 	rm -f "$TMP/key.bin"
@@ -994,7 +1014,7 @@ install-kernel() {
 	fi
 
 	OUTDIR="${EFIDIR}/${TARGET}"
-
+	echo $OUTDIR
 	if [ ! -d "$OUTDIR" ]; then
 		warn "$OUTDIR: Creating directory on EFI System Partition"
 		mkdir -p "$OUTDIR" \
@@ -1010,7 +1030,7 @@ install-kernel() {
 			--quiet \
 			--create \
 			--disk "$DEV" \
-			--part 1 \
+			--part 2 \
 			--label "$TARGET" \
 			--loader "\\EFI\\$TARGET\\linux.efi" \
 		|| die "efibootmgr: failed to create $TARGET entry"
@@ -1031,10 +1051,9 @@ install-kernel() {
 		linux="$KERNEL" \
 		initrd="$INITRD" \
 	|| die "$TMP/linux.efi: unable to unify image"
-
+	echo "Signing"
 	sign-kernel "$TMP/linux.efi" "$OUTDIR/linux.efi.new" \
 	|| die "$OUTDIR/linux.efi: unable to sign"
-
 	# Duplicate the old image and atomically move the new kernel
 	# image to avoid potentially leaving an unbootable system
 	if [ -r "$OUTDIR/linux.efi" ]; then
@@ -1076,7 +1095,7 @@ commands+="|linux-sign"
 linux-sign()
 {
 	show_help "$1" "$linux_sign_usage"
-	rootdev-check -
+	#rootdev-check -
 
 	# default is linux
 	if [ -n "$1" ]; then
@@ -1129,7 +1148,6 @@ linux-sign()
 
 	install-kernel "$TARGET" \
 		"$LINUX_COMMANDLINE" \
-		"$ROOT_ARGS" \
 		"safeboot.mode=$TARGET" \
 		"$@" \
 	|| die "Kernel signing failed!"
@@ -1172,7 +1190,7 @@ commands+="|recovery-sign"
 recovery-sign()
 {
 	show_help "$1" "$recovery_sign_usage"
-	rootdev-check -
+#	rootdev-check -
 
 	if [ "$SIP" == 1 ]; then
 		# ensure that the root file system is really
@@ -1186,7 +1204,6 @@ recovery-sign()
 
 	install-kernel "${RECOVERY_TARGET}" \
 		"$RECOVERY_COMMANDLINE" \
-		"root=${ROOTDEV}" \
 		"$ROOT_ARGS" \
 		"safeboot.mode=$RECOVERY_TARGET" \
 		"$@" \
