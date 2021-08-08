@@ -1244,7 +1244,7 @@ linux-sign() {
 	install-kernel "$LINUX_TARGET" \
 		"$VER" \
 		"$LINUX_COMMANDLINE" \
-		"safeboot.mode=$TARGET" \
+		"safeboot.mode=$LINUX_TARGET" \
 		"$@" ||
 		die "Kernel signing failed!"
 
