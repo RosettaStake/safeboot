@@ -46,6 +46,9 @@ CERT=$PREFIX${CERT:-$DIR/cert.pem}
 KERNEL=$PREFIX${KERNEL:-/boot/vmlinuz}
 INITRD=$PREFIX${INITRD:-/boot/initrd.img}
 EFIDIR=$PREFIX${EFIDIR:-/boot/efi/EFI}
+ESP_LIST="/etc/kernel/proxmox-boot-uuids"
+MANUAL_KERNEL_LIST="/etc/kernel/pve-efiboot-manual-kernels"
+MOUNTROOT="${TMPDIR:-/var/tmp}/espmounts"
 
 if [ "$KEY" == "pkcs11:" ]; then
 	# KEY is a hardware token, use the yubikey engine
@@ -72,8 +75,7 @@ fi
 #
 # Ensure that there is a valid root device
 #
-rootdev-check()
-{
+rootdev-check() {
 	if [ -z "${ROOTDEV}" ]; then
 		ROOTDEV="$(mount | awk '/ on \/ / { print $1 }')"
 		warn "\$ROOTDEV is not set. Guessing $ROOTDEV"
@@ -90,8 +92,8 @@ rootdev-check()
 
 	if [ "$TEST_ROOTDEV" = 1 ]; then
 		warn "$PREFXI$DIR/local.conf: setting \$ROOTDEV=$ROOTDEV"
-		echo "ROOTDEV=\"$ROOTDEV\"" >> $PREFIX$DIR/local.conf \
-		|| die "$PREFIX$DIR/local.conf: Unable to set \$ROOTDEV"
+		echo "ROOTDEV=\"$ROOTDEV\"" >>$PREFIX$DIR/local.conf ||
+			die "$PREFIX$DIR/local.conf: Unable to set \$ROOTDEV"
 		TEST_ROOTDEV=0
 	fi
 
@@ -115,12 +117,11 @@ rootdev-check()
 
 	if [ "$TEST_HASHDEV" = 1 ]; then
 		warn "$PREFXI$DIR/local.conf: setting \$HASHDEV=$HASHDEV"
-		echo "HASHDEV=\"$HASHDEV\"" >> $PREFIX$DIR/local.conf \
-		|| die "$PREFIX$DIR/local.conf: Unable to set \$HASHDEV"
+		echo "HASHDEV=\"$HASHDEV\"" >>$PREFIX$DIR/local.conf ||
+			die "$PREFIX$DIR/local.conf: Unable to set \$HASHDEV"
 		TEST_HASHDEV=0
 	fi
 }
-
 
 usage='
 # Safe Boot subcommands
@@ -177,11 +178,11 @@ key-init() {
 
 	if [ "$KEY" == "pkcs11:" ]; then
 		warn "\$KEY=pkcs11:; updating in local.conf"
-		( \
-		echo "# Added by key-init" ; \
-		echo "KEY=$DIR/signing.key" ; \
-		) >> "$PREFIX$DIR/local.conf" \
-		|| die "Unable to update safeboot.conf"
+		(
+			echo "# Added by key-init"
+			echo "KEY=$DIR/signing.key"
+		) >>"$PREFIX$DIR/local.conf" ||
+			die "Unable to update safeboot.conf"
 		KEY="$PREFIX$DIR/signing.key"
 	fi
 	if [ -r "$KEY" ]; then
@@ -196,12 +197,12 @@ key-init() {
 	mkdir -p "$(dirname "$KEY")" "$(dirname "$CERT")"
 
 	if [ -r "$KEY" ]; then
-		mv "$KEY" "$KEY.orig" \
-		|| die "$KEY: unable to backup"
+		mv "$KEY" "$KEY.orig" ||
+			die "$KEY: unable to backup"
 	fi
 	if [ -r "$CERT" ]; then
-		mv "$CERT" "$CERT.orig" \
-		|| die "$CERT: unable to backup"
+		mv "$CERT" "$CERT.orig" ||
+			die "$CERT: unable to backup"
 	fi
 
 	openssl req \
@@ -213,8 +214,8 @@ key-init() {
 		-outform "PEM" \
 		-out "$CERT" \
 		-days "3650" \
-		-sha256 \
-	|| die "$KEY: unable to create"
+		-sha256 ||
+		die "$KEY: unable to create"
 
 	# Create a certificate and public key file from the PEM
 	pem2der "$CERT"
@@ -222,8 +223,7 @@ key-init() {
 
 ########################################
 
-pem2der()
-{
+pem2der() {
 	crt_file="${1/.pem/.crt}"
 	pub_file="${1/.pem/.pub}"
 
@@ -231,20 +231,20 @@ pem2der()
 	openssl x509 \
 		-outform der \
 		-in "$1" \
-		-out "$crt_file" \
-	|| die "$crt_file: Unable to create DER file from $1"
+		-out "$crt_file" ||
+		die "$crt_file: Unable to create DER file from $1"
 
 	warn "$pub_file: Creating from $1"
 	openssl x509 \
 		-in "$1" \
 		-noout \
 		-pubkey \
-		-out "$pub_file" \
-	|| die "$pub_file: Unable to create PUB file from $1"
+		-out "$pub_file" ||
+		die "$pub_file: Unable to create PUB file from $1"
 }
 
 yubikey_daemon() {
-	if ! pidof pcscd >/dev/null ; then
+	if ! pidof pcscd >/dev/null; then
 		warn "Starting PCSCD for yubikey support"
 		pcscd --foreground &
 	fi
@@ -284,18 +284,18 @@ yubikey-init() {
 
 	if [ "$KEY" != "pkcs11:" ]; then
 		warn "Adding KEY=pkcs11: to local.conf"
-		( \
-		echo '# Added by yubikey-init' ; \
-		echo 'KEY="pkcs11:"' ; \
-		) >> $PREFIX$DIR/local.conf \
-		|| die "$PREFIX$DIR/local.conf: Unable to append"
+		(
+			echo '# Added by yubikey-init'
+			echo 'KEY="pkcs11:"'
+		) >>$PREFIX$DIR/local.conf ||
+			die "$PREFIX$DIR/local.conf: Unable to append"
 		KEY="pkcs11:"
 	fi
 
 	if [ -r "$CERT" ]; then
 		warn "WARNING! $CERT already exists; copying to $CERT.orig"
-		mv "$CERT" "$CERT.orig" \
-		|| die "$CERT: unable to make backup"
+		mv "$CERT" "$CERT.orig" ||
+			die "$CERT: unable to make backup"
 	fi
 
 	read -r -p "WARNING: This will erase any existing key on the yubikey. Are you sure? " really_do_it
@@ -308,8 +308,8 @@ yubikey-init() {
 	yubico-piv-tool \
 		-s 9c \
 		-a generate \
-		-o "$TMP/pubkey.pem" \
-	|| die "unable to generate new key"
+		-o "$TMP/pubkey.pem" ||
+		die "unable to generate new key"
 
 	warn "Self-signing certificate"
 	yubico-piv-tool \
@@ -318,21 +318,21 @@ yubikey-init() {
 		-a selfsign-certificate \
 		-S "$subject" \
 		-i "$TMP/pubkey.pem" \
-		-o "$CERT" \
-	|| die "Unable to self-sign certificate"
+		-o "$CERT" ||
+		die "Unable to self-sign certificate"
 
 	warn "Importing self-signed certificate into key"
 	yubico-piv-tool \
 		-s 9c \
 		-a import-certificate \
-		-i "$CERT" \
-	|| die "Unable to import certificate into key"
+		-i "$CERT" ||
+		die "Unable to import certificate into key"
 
 	pem2der "$CERT"
 
 	yubico-piv-tool \
-		-a status \
-	|| die "Unable to retrieve key status"
+		-a status ||
+		die "Unable to retrieve key status"
 }
 
 ########################################
@@ -351,8 +351,7 @@ The best part about standards...
 usage+=$yubikey_pubkey_usage
 commands+="|yubikey-pubkey"
 
-yubikey-pubkey()
-{
+yubikey-pubkey() {
 	show_help "$1" "$yubikey_pubkey_usage"
 	pem="$1"
 
@@ -364,12 +363,11 @@ yubikey-pubkey()
 	yubico-piv-tool \
 		-s 9c \
 		-a read-certificate \
-		-o "$pem" \
-	|| die "$pem: unable to read from yubikey"
+		-o "$pem" ||
+		die "$pem: unable to read from yubikey"
 
 	pem2der "$pem"
 }
-
 
 ########################################
 
@@ -399,8 +397,8 @@ uefi-sign-keys() {
 	cert-to-efi-sig-list \
 		-g "$(uuidgen)" \
 		"$CERT" \
-		"$TMP/cert.esl" \
-	|| die "cert-to-efi-sig-list failed"
+		"$TMP/cert.esl" ||
+		die "cert-to-efi-sig-list failed"
 
 	## Cache the yubico pin since it will be used multiple times
 	#read -s -p 'Yubikey login PIN: ' pin
@@ -416,8 +414,8 @@ uefi-sign-keys() {
 			-c "$CERT" \
 			"$key" \
 			"$TMP/cert.esl" \
-			$PREFIX$DIR/$key.auth \
-		|| die "$key: Signing failed"
+			$PREFIX$DIR/$key.auth ||
+			die "$key: Signing failed"
 	done
 
 	uefi-set-keys ""
@@ -441,8 +439,7 @@ this automatically.
 usage+=$uefi_set_keys_usage
 commands+="|uefi-set-keys"
 
-uefi-set-keys()
-{
+uefi-set-keys() {
 	show_help "$1" "$uefi_set_keys_usage"
 
 	# The order of update must be from lowest to highest
@@ -453,11 +450,10 @@ uefi-set-keys()
 
 		warn "Installing UEFI variable $key"
 
-		efi-updatevar -f "$PREFIX$DIR/$key.auth" "$key" \
-		|| die "$key: updating key failed; is the BIOS in setup mode?"
+		efi-updatevar -f "$PREFIX$DIR/$key.auth" "$key" ||
+			die "$key: updating key failed; is the BIOS in setup mode?"
 	done
 }
-
 
 ########################################
 
@@ -493,22 +489,22 @@ pcrs-sign() {
 		warn "$linux: Incrementing TPM version to prevent rollback"
 		tpm2 nvincrement \
 			"$TPM_NV_VERSION" \
-			>> /tmp/tpm.log \
-		|| die "Unable to increment TPM version $TPM_NV_VERSION"
+			>>/tmp/tpm.log ||
+			die "Unable to increment TPM version $TPM_NV_VERSION"
 	fi
 
 	tpm2 nvread \
 		"$TPM_NV_VERSION" \
 		--size 8 \
-		> "$TMP/nv_version.bin" \
-	|| die "Unable to read TPM version $TPM_NV_VERSION"
+		>"$TMP/nv_version.bin" ||
+		die "Unable to read TPM version $TPM_NV_VERSION"
 	VERSION="$(xxd -g8 "$TMP/nv_version.bin" | awk '{print $2}')"
 	warn "$linux: TPM version $VERSION"
 
 	# If pre-computed PCRs are known, they can be used here instead
 	# TODO: allow PCRs to be passed in
-	tpm2 pcrread -o "$TMP/pcrs.bin" "sha256:$PCRS" \
-	|| die "Unable to read TPM PCRs"
+	tpm2 pcrread -o "$TMP/pcrs.bin" "sha256:$PCRS" ||
+		die "Unable to read TPM PCRs"
 
 	# Check to see if the PCR4 matches the expected value
 	# for the Linux kernel (which will be loaded as the boot application).
@@ -517,9 +513,10 @@ pcrs-sign() {
 	linux_hash="$(sbsign.safeboot --hash-only "$linux" || die "unable to hash")"
 	ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend 0)"
 	#pcr4_computed="$(echo -n "${ev_sep}${linux_hash}" | hex2bin | sha256)"
+
 	ev_act="$(echo -n "Calling EFI Application from Boot Option" | tpm2_trial_extend 0)"
-        ex_ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend "$ev_act")"
-        pcr4_computed="$(echo -n "${ex_ev_sep}${linux_hash}" | hex2bin | sha256)"
+	ex_ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend "$ev_act")"
+	pcr4_computed="$(echo -n "${ex_ev_sep}${linux_hash}" | hex2bin | sha256)"
 
 	pcr2_read="$(tpm2 pcrread sha256:3 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 	pcr4_read="$(tpm2 pcrread sha256:4 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
@@ -527,14 +524,14 @@ pcrs-sign() {
 	# HACK: this assumes PCR2 is the second in the list
 	if [ "$pcr2_read" != "$ev_sep" ]; then
 		warn "PCR2: ignoring BootMenu entries"
-		echo -n "$ev_sep" | hex2bin \
-		| dd \
-			of="$TMP/pcrs.bin" \
-			conv=notrunc \
-			seek=1 \
-			bs=32 \
-			2>/dev/null \
-		|| die "$TMP/pcrs.bin: unable to update PCR2"
+		echo -n "$ev_sep" | hex2bin |
+			dd \
+				of="$TMP/pcrs.bin" \
+				conv=notrunc \
+				seek=1 \
+				bs=32 \
+				2>/dev/null ||
+			die "$TMP/pcrs.bin: unable to update PCR2"
 	fi
 
 	warn "$linux: PE hash $linux_hash"
@@ -546,14 +543,14 @@ pcrs-sign() {
 
 		# HACK: replace the PCR with the computed one, assuming PCR14 is the 3rd
 		# initrd dd does not support iflag=fullblock status=none
-		echo -n "$pcr4_computed" | hex2bin \
-		| dd \
-			of="$TMP/pcrs.bin" \
-			conv=notrunc \
-			seek=2 \
-			bs=32 \
-			2>/dev/null \
-		|| die "$TMP/pcrs.bin: unable to update PCR4"
+		echo -n "$pcr4_computed" | hex2bin |
+			dd \
+				of="$TMP/pcrs.bin" \
+				conv=notrunc \
+				seek=2 \
+				bs=32 \
+				2>/dev/null ||
+			die "$TMP/pcrs.bin: unable to update PCR4"
 	fi
 
 	# Add a "normal" entry for PCR 14, which ensures that the TPM
@@ -565,7 +562,7 @@ pcrs-sign() {
 	pcr14="$(echo -n "${LINUX_TARGET}" | tpm2_trial_extend "$PCR_DEFAULT")"
 	warn "mode=${LINUX_TARGET} PCR$BOOTMODE_PCR=$pcr14"
 	echo -n "$pcr14" | hex2bin \
-		>> "$TMP/pcrs.bin"
+		>>"$TMP/pcrs.bin"
 	echo "final PCRs:"
 	xxd -g32 -c32 "$TMP/pcrs.bin" | awk '{print $2}'
 
@@ -574,18 +571,14 @@ pcrs-sign() {
 	openssl dgst \
 		-sha256 \
 		-sign "$KEY" \
-		${KEY_ENGINE:+ \
-			-keyform engine \
-			-engine pkcs11 \
-		} \
+		${KEY_ENGINE:+ 			-keyform engine 			-engine pkcs11 		} \
 		-out "$TMP/pcr.policy.sig" \
-		"$TMP/pcr.policy" \
-	|| die "Unable to sign PCR policy"
+		"$TMP/pcr.policy" ||
+		die "Unable to sign PCR policy"
 
-	efivar_write "$PCR_SIGNATURE" < "$TMP/pcr.policy.sig" \
-	|| die "$PCR_SIGNATURE: Unable to write to EFI variable"
+	efivar_write "$PCR_SIGNATURE" <"$TMP/pcr.policy.sig" ||
+		die "$PCR_SIGNATURE: Unable to write to EFI variable"
 }
-
 
 luks_seal_usage='
 ## luks-seal
@@ -640,32 +633,32 @@ luks-seal() {
 		warn "!!! $PREFIX/usr/sbin/safeboot is not installed; this will probably not work"
 	fi
 
-#	if [ "$(wc -l < "$PREFIX/etc/crypttab")" -ne 1 ]; then
-#		die "!!! $PREFIX/etc/crypttab must have only one entry"
-#	fi
+	#	if [ "$(wc -l < "$PREFIX/etc/crypttab")" -ne 1 ]; then
+	#		die "!!! $PREFIX/etc/crypttab must have only one entry"
+	#	fi
 
 	# Determine which device is the cryptdisk
 	#uuid="$(cut -d' ' -f2 $PREFIX/etc/crypttab)"
 	#if [ -z "$uuid" ]; then
-#		die "Unable to find UUID in crypttab"
-#	fi
-#	dev=$(blkid -U "${uuid#UUID=}")
-#	if [ -z "$dev" ]; then
-#		die "Unable to find device for $uuid"
-#	fi
+	#		die "Unable to find UUID in crypttab"
+	#	fi
+	#	dev=$(blkid -U "${uuid#UUID=}")
+	#	if [ -z "$dev" ]; then
+	#		die "Unable to find device for $uuid"
+	#	fi
 
 	uuid="$(cut -d' ' -f2 $PREFIX/etc/crypttab)"
 	if [ -z "$uuid" ]; then
-                die "Unable to find UUID in crypttab"
+		die "Unable to find UUID in crypttab"
 	fi
 	list=($uuid)
 	devs=()
 	for v in "${list[@]}"; do
-        	t=$(blkid -U "${v#UUID=}")
-        	if [ -z "$t" ]; then
-                	die "Unable to find device for $v"
-        	fi
-        	devs+=($t)
+		t=$(blkid -U "${v#UUID=}")
+		if [ -z "$t" ]; then
+			die "Unable to find device for $v"
+		fi
+		devs+=($t)
 	done
 
 	# Use a tmpfs mount instead of just a temp directory so that
@@ -696,20 +689,20 @@ luks-seal() {
 	# Ensure that there is a TPM counter at the desired address
 	tpm2 nvundefine \
 		"$TPM_NV_VERSION" \
-		>> /tmp/tpm.log \
-	|| warn "Unable to remove old TPM counter $TPM_NV_VERSION"
+		>>/tmp/tpm.log ||
+		warn "Unable to remove old TPM counter $TPM_NV_VERSION"
 
 	tpm2 nvdefine \
 		"$TPM_NV_VERSION" \
 		--attributes 'authread|authwrite|nt=counter' \
 		--size 8 \
-		>> /tmp/tpm.log \
-	|| die "Unable to create TPM counter $TPM_NV_VERSION"
+		>>/tmp/tpm.log ||
+		die "Unable to create TPM counter $TPM_NV_VERSION"
 
 	tpm2 nvincrement \
 		"$TPM_NV_VERSION" \
-		>> /tmp/tpm.log \
-	|| die "Unable to initialize TPM counter $TPM_NV_VERSION"
+		>>/tmp/tpm.log ||
+		die "Unable to initialize TPM counter $TPM_NV_VERSION"
 
 	tpm2_create_policy
 
@@ -720,8 +713,8 @@ luks-seal() {
 		count=1 \
 		iflag=fullblock \
 		status=none \
-		2>/dev/null \
-	|| die "Unable to generate random key"
+		2>/dev/null ||
+		die "Unable to generate random key"
 
 	warn "Sealing secret with TPM, storing sealed secret in $TPM_NV_VERSION"
 
@@ -729,8 +722,8 @@ luks-seal() {
 
 	tpm2 createprimary \
 		--key-context "$TMP/primary.ctx" \
-		>> /tmp/tpm.log \
-	|| die "Unable to create TPM primary object"
+		>>/tmp/tpm.log ||
+		die "Unable to create TPM primary object"
 
 	tpm2 create \
 		--parent-context "$TMP/primary.ctx" \
@@ -739,36 +732,36 @@ luks-seal() {
 		${SEAL_PIN1:+ --key-auth "$SEAL_PIN1" } \
 		--public "$TMP/sealed.pub" \
 		--private "$TMP/sealed.priv" \
-		>> /tmp/tpm.log \
-	|| die "Unable to create TPM key context"
+		>>/tmp/tpm.log ||
+		die "Unable to create TPM key context"
 
 	tpm2 load \
 		--parent-context "$TMP/primary.ctx" \
 		--public "$TMP/sealed.pub" \
 		--private "$TMP/sealed.priv" \
 		--name "$TMP/sealed.name" \
-		--key-context "$TMP/sealed.ctx" \
-	|| die "Unable to load sealed object into TPM"
+		--key-context "$TMP/sealed.ctx" ||
+		die "Unable to load sealed object into TPM"
 
 	tpm2 evictcontrol \
 		--hierarchy owner \
-		--object-context "$TPM_SEALED_HANDLE" \
-	|| warn "Unable to evict existing sealed handle $TPM_SEALED_HANDLE, ignoring"
+		--object-context "$TPM_SEALED_HANDLE" ||
+		warn "Unable to evict existing sealed handle $TPM_SEALED_HANDLE, ignoring"
 
 	tpm2 evictcontrol \
 		--hierarchy owner \
 		--object-context "$TMP/sealed.ctx" \
-		"$TPM_SEALED_HANDLE" \
-	|| die "Unable to persist sealed data into the TPM"
+		"$TPM_SEALED_HANDLE" ||
+		die "Unable to persist sealed data into the TPM"
 
 	# make sure the crypttab has the unlock script referenced
-	if ! grep keyscript "$PREFIX/etc/crypttab" > /dev/null ; then
+	if ! grep keyscript "$PREFIX/etc/crypttab" >/dev/null; then
 		warn "adding crypttab unseal script"
 		sed \
 			-i.orig \
 			's: luks: keyscript=/usr/sbin/safeboot-tpm-unseal,luks:' \
-			$PREFIX/etc/crypttab \
-		|| die "$PREFIX/etc/crypttab: unable to add keyscript"
+			$PREFIX/etc/crypttab ||
+			die "$PREFIX/etc/crypttab: unable to add keyscript"
 
 		need_update_initramfs=1
 	fi
@@ -778,20 +771,20 @@ luks-seal() {
 		for tries in 1 2 3 fail; do
 			read -r -s -p "$dev: Current recovery password: " recovery_key
 			echo
-			echo -n "$recovery_key" > "$TMP/recovery.key"
+			echo -n "$recovery_key" >"$TMP/recovery.key"
 
 			warn "Removing old LUKS TPM key (if it exists)"
 			cryptsetup luksKillSlot \
 				--key-file "$TMP/recovery.key" \
-				"$dev" $KEYSLOT \
-			|| warn "$dev: Unable to remove old key slot (ignored)"
+				"$dev" $KEYSLOT ||
+				warn "$dev: Unable to remove old key slot (ignored)"
 
 			warn "Adding new LUKS TPM key"
 			cryptsetup luksAddKey \
 				--key-file "$TMP/recovery.key" \
 				--key-slot $KEYSLOT \
-				"$dev" "$TMP/key.bin" \
-			&& break
+				"$dev" "$TMP/key.bin" &&
+				break
 
 			warn "$dev: Unable to add key slot"
 
@@ -807,17 +800,17 @@ luks-seal() {
 
 	if [ -n "$need_update_initramfs" ]; then
 		warn "-------- Need to update initramfs --------"
-		update-initramfs -u \
-		|| die "Unable to update initramfs"
+		update-initramfs -u ||
+			die "Unable to update initramfs"
 
 		warn "-------- Need to sign new kernel --------"
-		linux-sign "$LINUX_TARGET" \
-		|| die "Unable to sign kernel"
+		linux-sign "$LINUX_TARGET" ||
+			die "Unable to sign kernel"
 	fi
 
 	warn "-------- Need to sign PCR and counter values --------"
-	pcrs-sign "allow-rollback" "$LINUX_TARGET" \
-	|| die "Unable to sign PCRs"
+	pcrs-sign "allow-rollback" "$LINUX_TARGET" ||
+		die "Unable to sign PCRs"
 }
 
 ########################################
@@ -846,7 +839,7 @@ sign() {
 	fi
 
 	OUT="$2"
-	if [ -z "$OUT" ];then
+	if [ -z "$OUT" ]; then
 		OUT="$IN.signed"
 	fi
 
@@ -880,8 +873,7 @@ This is the raw command; you might want to use `safeboot linux-sign` or
 usage+=$unify_kernel_usage
 commands+="|unify-kernel"
 
-unify-kernel()
-{
+unify-kernel() {
 	show_help "$1" "$unify_kernel_usage"
 	unified="$1"
 
@@ -906,23 +898,23 @@ unify-kernel()
 			die "$file: unable to read"
 		fi
 
-		size="$(wc -c < "$file")"
+		size="$(wc -c <"$file")"
 		warn ".$name=$file: $size @ $offset"
 
-		sections+=( \
-			--add-section		".$name=$file" \
-			--change-section-vma	".$name=$offset" \
+		sections+=(
+			--add-section ".$name=$file"
+			--change-section-vma ".$name=$offset"
 		)
 
 		# round up the offset to the next block size
-		offset="$(( (offset + size + blocksize-1) / blocksize * blocksize ))"
+		offset="$(((offset + size + blocksize - 1) / blocksize * blocksize))"
 	done
 
 	objcopy \
 		"${sections[@]}" \
 		"$PREFIX/usr/lib/systemd/boot/efi/linuxx64.efi.stub" \
-		"$unified" \
-	|| die "$unified: unable to create"
+		"$unified" ||
+		die "$unified: unable to create"
 }
 
 ########################################
@@ -945,8 +937,7 @@ This is the raw command; you might want to use `safeboot linux-sign` or
 usage+=$sign_kernel_usage
 commands+="|sign-kernel"
 
-sign-kernel()
-{
+sign-kernel() {
 	show_help "$1" "$sign_kernel_usage"
 	unified="$1"
 
@@ -963,15 +954,15 @@ sign-kernel()
 		signed="${unified%.efi}.signed.efi"
 	fi
 
-	for try in 1 2 3 ; do
+	for try in 1 2 3; do
 		warn "$signed: Signing (ignore warnings about gaps)"
 		sbsign.safeboot \
 			$KEY_ENGINE \
 			--key "$KEY" \
 			--cert "$CERT" \
 			--output "$signed" \
-			"$unified" \
-		&& break
+			"$unified" &&
+			break
 
 		if [ "$try" == 3 ]; then
 			die "$signed: failed after $try tries"
@@ -1006,65 +997,113 @@ commands+="|install-kernel"
 
 install-kernel() {
 	show_help "$1" "$sign_kernel_usage"
+	if [ ! -e ${ESP_LIST} ]; then
+		return 2
+	fi
 
-	TARGET="$1" ; shift
+	TARGET="$1"
+	shift
+
+	VER="$2"
+	shift
 
 	if [ -z "$TARGET" ]; then
 		die "$sign_kernel_usage"
 	fi
 
-	OUTDIR="${EFIDIR}/${TARGET}"
-	echo $OUTDIR
-	if [ ! -d "$OUTDIR" ]; then
-		warn "$OUTDIR: Creating directory on EFI System Partition"
-		mkdir -p "$OUTDIR" \
-		|| die "$OUTDIR: unable to create"
-	fi
+	cat "${ESP_LIST}" | while IFS= read -r curr_uuid; do
+		if [ -z "$curr_uuid" ]; then
+			continue
+		fi
+		if ! (echo "${curr_uuid}" | grep -qE '[0-9a-fA-F]{4}-[0-9a-fA-F]{4}'); then
+			warn "WARN: ${curr_uuid} read from ${ESP_LIST} does not look like a VFAT-UUID - skipping"
+			return
+		fi
+		path="/dev/disk/by-uuid/$curr_uuid"
+		if [ ! -e "${path}" ]; then
+			warn "WARN: ${path} does not exist - clean '${ESP_LIST}'! - skipping"
+			return
+		fi
+		mountpoint="${MOUNTROOT}/${curr_uuid}"
+		mkdir -p "${mountpoint}" ||
+			{
+				warn "creation of mountpoint ${mountpoint} failed - skipping"
+				return
+			}
+		mount "${path}" "${mountpoint}" ||
+			{
+				warn "mount of ${path} failed - skipping"
+				return
+			}
 
-	if ! efibootmgr | grep "^Boot.* $TARGET\$" ; then
-		# determine the device the EFI system partition is on
-		DEV="$(df "$OUTDIR" | tail -1 | cut -d' ' -f1)"
+		OUTDIR="${mountpoint}/${TARGET}"
 
-		warn "$OUTDIR: Creating boot menu item on $DEV"
-		efibootmgr \
-			--quiet \
-			--create \
-			--disk "$DEV" \
-			--part 2 \
-			--label "$TARGET" \
-			--loader "\\EFI\\$TARGET\\linux.efi" \
-		|| die "efibootmgr: failed to create $TARGET entry"
-	fi
+		if [ ! -d "$OUTDIR" ]; then
+			warn "$OUTDIR: Creating directory on EFI System Partition"
+			mkdir -p "$OUTDIR" ||
+				die "$OUTDIR: unable to create"
+		fi
 
-	if [ $# == 0 ]; then
-		warn "Using /proc/cmdline"
-		cat /proc/cmdline > "$TMP/cmdline.txt"
-	else
-		echo -n "$@" > "$TMP/cmdline.txt"
-	fi
+		# manage bootmgr here?
 
-	echo "Kernel commandline: '$(cat "$TMP/cmdline.txt")'"
+		if [ $# == 0 ]; then
+			warn "Using /proc/cmdline"
+			cat /proc/cmdline >"$TMP/cmdline.txt"
+		else
+			echo -n "$@" >"$TMP/cmdline.txt"
+		fi
 
-	unify-kernel "$TMP/linux.efi" \
-		osrel="$PREFIX/etc/os-release" \
-		cmdline="$TMP/cmdline.txt" \
-		linux="$KERNEL" \
-		initrd="$INITRD" \
-	|| die "$TMP/linux.efi: unable to unify image"
-	echo "Signing"
-	sign-kernel "$TMP/linux.efi" "$OUTDIR/linux.efi.new" \
-	|| die "$OUTDIR/linux.efi: unable to sign"
-	# Duplicate the old image and atomically move the new kernel
-	# image to avoid potentially leaving an unbootable system
-	if [ -r "$OUTDIR/linux.efi" ]; then
-		cp "$OUTDIR/linux.efi" "$OUTDIR/linux.efi.old" \
-		|| die "$OUTDIR/linux.efi.old: unable to backup old image"
-	fi
+		echo "Kernel commandline: '$(cat "$TMP/cmdline.txt")'"
 
-	mv "$OUTDIR/linux.efi.new" "$OUTDIR/linux.efi" \
-	|| die "$OUTDIR/linux.efi: unable to install new image"
+		if [ -z "$VER" ]; then
+			BOOT_KVERS="$(boot_kernel_list "$VER")"
+		else
+			BOOT_KVERS="$(boot_kernel_list)"
+		fi
 
-	sha256sum "$OUTDIR/linux.efi"
+		for kver in ${BOOT_KVERS}; do
+
+			linux_image="/boot/vmlinuz-${kver}"
+			initrd="/boot/initrd.img-${kver}"
+
+			if ! efibootmgr | grep "^Boot.* $TARGET-$curr_uuid-$kver\$"; then
+				# determine the device the EFI system partition is on
+				DEV="$(df "$OUTDIR" | tail -1 | cut -d' ' -f1)"
+				part=$(cat /sys/class/block/$(basename $DEV)/partition)
+
+				warn "$OUTDIR: Creating boot menu item on $DEV"
+				efibootmgr \
+					--quiet \
+					--create \
+					--disk "$DEV" \
+					--part $part \
+					--label "$TARGET-$curr_uuid-$kver" \
+					--loader "\\$TARGET\\$kver\\linux.efi" ||
+					die "efibootmgr: failed to create $TARGET entry"
+			fi
+
+			unify-kernel "$TMP/linux.efi" \
+				osrel="$PREFIX/etc/os-release" \
+				cmdline="$TMP/cmdline.txt" \
+				linux="$linux_image" \
+				initrd="$initrd" ||
+				die "$TMP/linux.efi: unable to unify image"
+			echo "Signing"
+			sign-kernel "$TMP/linux.efi" "$OUTDIR/$kver/linux.efi.new" ||
+				die "$OUTDIR/$kver/linux.efi: unable to sign"
+			# Duplicate the old image and atomically move the new kernel
+			# image to avoid potentially leaving an unbootable system
+			#if [ -r "$OUTDIR/linux.efi" ]; then
+			#	cp "$OUTDIR/linux.efi" "$OUTDIR/linux.efi.old" \
+			#	|| die "$OUTDIR/linux.efi.old: unable to backup old image"
+			#fi
+
+			mv "$OUTDIR/$kver/linux.efi.new" "$OUTDIR/$kver/linux.efi" ||
+				die "$OUTDIR/$kver/linux.efi: unable to install new image"
+
+			sha256sum "$OUTDIR/$kver/linux.efi"
+		done
+	done
 }
 
 ########################################
@@ -1092,10 +1131,12 @@ unbootable and require a recovery reboot to re-hash the root filesystem.
 usage+=$linux_sign_usage
 commands+="|linux-sign"
 
-linux-sign()
-{
+linux-sign() {
 	show_help "$1" "$linux_sign_usage"
 	#rootdev-check -
+	if [ ! -e ${ESP_LIST} ]; then
+		return 2
+	fi
 
 	# default is linux
 	if [ -n "$1" ]; then
@@ -1105,10 +1146,17 @@ linux-sign()
 		TARGET=${LINUX_TARGET}
 	fi
 
+	if [ -n "$1" ]; then
+		VER=$1
+		shift
+	else
+		VER=""
+	fi
+
 	if [ "$SIP" == 1 ]; then
-		if mount | grep "^${ROOTDEV} " ; then \
-			remount_ro "$ROOTDEV" \
-				|| die "${ROOTDEV}: Could not remount"
+		if mount | grep "^${ROOTDEV} "; then
+			remount_ro "$ROOTDEV" ||
+				die "${ROOTDEV}: Could not remount"
 		fi
 
 		if [ -n "$HASH" ]; then
@@ -1121,9 +1169,9 @@ linux-sign()
 			veritysetup format \
 				--debug \
 				"${ROOTDEV}" \
-				"${HASHDEV}" \
-				| tee "$TMP/verity.log" \
-			|| die "$ROOTDEV: unable to compute hashes"
+				"${HASHDEV}" |
+				tee "$TMP/verity.log" ||
+				die "$ROOTDEV: unable to compute hashes"
 
 			HASH="$(awk '/Root hash:/ { print $3 }' "$TMP/verity.log")"
 		fi
@@ -1147,10 +1195,11 @@ linux-sign()
 	fi
 
 	install-kernel "$TARGET" \
+		"$VER" \
 		"$LINUX_COMMANDLINE" \
 		"safeboot.mode=$TARGET" \
-		"$@" \
-	|| die "Kernel signing failed!"
+		"$@" ||
+		die "Kernel signing failed!"
 
 	if [ -r "$TMP/verity.log" ]; then
 		# stash a copy of the verity log in the boot directory
@@ -1187,10 +1236,12 @@ it to read-only mode before signing the hashes.
 usage+=$recovery_sign_usage
 commands+="|recovery-sign"
 
-recovery-sign()
-{
+recovery-sign() {
 	show_help "$1" "$recovery_sign_usage"
-#	rootdev-check -
+	#rootdev-check -
+	if [ ! -e ${ESP_LIST} ]; then
+		return 2
+	fi
 
 	if [ "$SIP" == 1 ]; then
 		# ensure that the root file system is really
@@ -1206,19 +1257,23 @@ recovery-sign()
 		"$RECOVERY_COMMANDLINE" \
 		"$ROOT_ARGS" \
 		"safeboot.mode=$RECOVERY_TARGET" \
-		"$@" \
-	|| die "Kernel signing failed!"
+		"$@" ||
+		die "Kernel signing failed!"
 }
 
 reboot() {
 	umount /boot/efi
 	umount /boot
 	mount -o ro,remount "$ROOTDEV"
-	sync ; sync ; sync
+	sync
+	sync
+	sync
 
 	warn "Initiating reboot!"
 	sleep 2
-	sync ; sync ; sync
+	sync
+	sync
+	sync
 
 	if [ -x "/usr/bin/reboot" ]; then
 		# busybox reboot, no init to go through
@@ -1251,11 +1306,10 @@ recovery mode.
 usage+=$recovery_reboot_usage
 commands+="|recovery-reboot"
 
-recovery-reboot()
-{
+recovery-reboot() {
 	show_help "$1" "$recovery_reboot_usage"
-	efi_bootnext "${RECOVERY_TARGET}" \
-	|| die "${RECOVERY_TARGET}: unable to select for next boot"
+	efi_bootnext "${RECOVERY_TARGET}" ||
+		die "${RECOVERY_TARGET}: unable to select for next boot"
 
 	warn "Rebooting in 3 seconds"
 	sleep 3
@@ -1277,8 +1331,7 @@ update the EFI variables.
 usage+=$bootnext_usage
 commands+="|bootnext"
 
-bootnext()
-{
+bootnext() {
 	show_help "$1" "$bootnext_usage"
 	efi_bootnext "${1:-recovery}"
 }
@@ -1289,14 +1342,13 @@ bootnext()
 # If it fails, report which processes have write access or
 # temporary deleted files still open.
 
-remount_ro()
-{
+remount_ro() {
 	rootdev-check -
 
 	DEV="${1:-${ROOTDEV}}"
 	KILLALL="$2"
 
-	if [ "$(blockdev --getro "${DEV}")" == 1 ] ; then
+	if [ "$(blockdev --getro "${DEV}")" == 1 ]; then
 		warn "${DEV}: already read-only"
 		return 0
 	fi
@@ -1306,25 +1358,24 @@ remount_ro()
 	telinit u
 
 	warn "${DEV}: remounting read-only"
-	if mount -o ro,noatime,remount "${DEV}" ; then
+	if mount -o ro,noatime,remount "${DEV}"; then
 
 		warn "${DEV}: forcing fsck"
-		fsck.ext4 -f "${DEV}" \
-			|| die "${DEV}: Could not fsck"
+		fsck.ext4 -f "${DEV}" ||
+			die "${DEV}: Could not fsck"
 
 		warn "${DEV}: setting block dev readonly"
-		blockdev --setro "${DEV}" \
-			|| die "${DEV}: Could not set read-only"
+		blockdev --setro "${DEV}" ||
+			die "${DEV}: Could not set read-only"
 
 		return 0
 	fi
 
 	warn "${DEV}: something blocked remount. Likely processes:"
-	lsof +f -- "${DEV}" 2>&- \
-		| awk '$4 == "DEL" || $4 ~ /[0-9][uw]$/ { print $2, $1, $3, "("$4")" }' \
-		| tee "$TMP/pid.lst" \
-	|| warn "lsof failed"
-
+	lsof +f -- "${DEV}" 2>&- |
+		awk '$4 == "DEL" || $4 ~ /[0-9][uw]$/ { print $2, $1, $3, "("$4")" }' |
+		tee "$TMP/pid.lst" ||
+		warn "lsof failed"
 
 	if [ "$KILLALL" = "killall" ]; then
 		warn "KILLING ALL PROCESSES in 5 seconds"
@@ -1337,19 +1388,18 @@ remount_ro()
 	return 1
 }
 
-remount_rw()
-{
+remount_rw() {
 	rootdev-check -
 
 	DEV="${1:-${ROOTDEV}}"
 
 	warn "${DEV}: remounting read-write"
 
-	blockdev --setrw "${DEV}" \
-	|| die "${DEV}: Unable to mark as read-write"
+	blockdev --setrw "${DEV}" ||
+		die "${DEV}: Unable to mark as read-write"
 
-	mount -o rw,remount "${DEV}" \
-	|| die "${DEV}: Unable to remount read-write"
+	mount -o rw,remount "${DEV}" ||
+		die "${DEV}: Unable to remount read-write"
 
 	if [ "$SIP" == 1 ]; then
 		warn "${DEV}: Remounted read/write; remember to re-sign the root hashes before rebooting!"
@@ -1378,8 +1428,7 @@ If there are processes blocking the remount, they will be listed.
 usage+=$remount_usage
 commands+="|remount"
 
-remount()
-{
+remount() {
 	show_help "$1" "$remount_usage"
 	rootdev-check -
 	RW="$1"
@@ -1393,7 +1442,6 @@ remount()
 		die "Unknown argument.$remount_usage"
 	fi
 }
-
 
 ########################################
 
@@ -1414,8 +1462,7 @@ and makes `/tmp` a symlink into `/var/tmp`.
 usage+=$sip_init_usage
 commands+="|sip-init"
 
-sip-init()
-{
+sip-init() {
 	show_help "$1" "$sip_init_usage"
 	rootdev-check -
 
@@ -1433,7 +1480,7 @@ sip-init()
 	if [ -z "$root_size" ]; then
 		die "${ROOTDEV}: unknown size"
 	fi
-	if [ "$root_size" -gt $((16*1024*1024*1024)) ]; then
+	if [ "$root_size" -gt $((16 * 1024 * 1024 * 1024)) ]; then
 		die "${ROOTDEV}: root is $root_size bytes, too large for hashes"
 	fi
 
@@ -1446,9 +1493,9 @@ sip-init()
 	fi
 
 	# or if they have entries in the fstab for /home or /var
-	grep -q '\s/var\s' $PREFIX/etc/fstab && \
+	grep -q '\s/var\s' $PREFIX/etc/fstab &&
 		die "/var already exists in $PREFIX/etc/fstab"
-	grep -q '\s/home\s' $PREFIX/etc/fstab && \
+	grep -q '\s/home\s' $PREFIX/etc/fstab &&
 		die "/home already exists in $PREFIX/etc/fstab"
 
 	# make sure the signing cert exists
@@ -1486,8 +1533,8 @@ EOF
 		die "Not configuring SIP!"
 	fi
 
-	remount "rw" \
-	|| die "Root file system is not writable"
+	remount "rw" ||
+		die "Root file system is not writable"
 
 	# shellcheck disable=SC2034
 	die_msg="
@@ -1501,64 +1548,64 @@ you can unwind the changes that were made.
 "
 
 	# create the volume groups
-	lvcreate --size 1g -n hashes "$vg" \
-	|| die "$vg-hashes: unable to create volume"
+	lvcreate --size 1g -n hashes "$vg" ||
+		die "$vg-hashes: unable to create volume"
 
-	lvcreate --size "$var_size" -n var "$vg" \
-	|| die "$vg-var: unable to create volume"
+	lvcreate --size "$var_size" -n var "$vg" ||
+		die "$vg-var: unable to create volume"
 
-	lvcreate --size "$home_size" -n home "$vg" \
-	|| die "$vg-home: unable to create volume"
+	lvcreate --size "$home_size" -n home "$vg" ||
+		die "$vg-home: unable to create volume"
 
 	# relocate /var and /home to the new volumes
-	for lv in var home ; do
-		mkfs.ext4 "/dev/mapper/$vg-$lv" \
-		|| die "$vg-$lv: unable to make filesystem"
+	for lv in var home; do
+		mkfs.ext4 "/dev/mapper/$vg-$lv" ||
+			die "$vg-$lv: unable to make filesystem"
 
 		warn "Adding /$lv to fstab"
-		echo >> "$PREFIX/etc/fstab" \
-			"/dev/mapper/$vg-$lv /$lv ext4 nosuid,nodev 0 1" \
-		|| die "unable to add /$lv to fstab"
+		echo >>"$PREFIX/etc/fstab" \
+			"/dev/mapper/$vg-$lv /$lv ext4 nosuid,nodev 0 1" ||
+			die "unable to add /$lv to fstab"
 
-		mkdir -p "/tmp-$lv" \
-		|| die "/tmp-$lv: unable to create temporary mount point"
+		mkdir -p "/tmp-$lv" ||
+			die "/tmp-$lv: unable to create temporary mount point"
 
-		mount "/dev/mapper/$vg-$lv" "/tmp-$lv" \
-		|| die "$vg-$lv: unable to mount temporary mount point"
+		mount "/dev/mapper/$vg-$lv" "/tmp-$lv" ||
+			die "$vg-$lv: unable to mount temporary mount point"
 
 		warn "Moving contents of /$lv to new filesystem"
-		mv "/$lv/"* "/tmp-$lv/" \
-		|| warn "$vg-$lv: unable to move everything from old mount"
+		mv "/$lv/"* "/tmp-$lv/" ||
+			warn "$vg-$lv: unable to move everything from old mount"
 
-		umount "/tmp-$lv" \
-		|| die "$vg-$lv: unable to unmount"
+		umount "/tmp-$lv" ||
+			die "$vg-$lv: unable to unmount"
 
-		mount "/$lv" \
-		|| die "/$lv: unable to remount new file system"
+		mount "/$lv" ||
+			die "/$lv: unable to remount new file system"
 	done
 
 	# and fix up /tmp
 	warn "/tmp: Creating new temporary directory"
-	rm -rf /tmp \
-	|| die "/tmp: unable to clean up"
+	rm -rf /tmp ||
+		die "/tmp: unable to clean up"
 
-	ln -sf ./var/tmp /tmp \
-	|| die "/tmp: unable to create symlink"
+	ln -sf ./var/tmp /tmp ||
+		die "/tmp: unable to create symlink"
 
 	if [ "$SIP" != 1 ]; then
 		warn "Adding SIP=1 to local.conf"
-		( \
-		echo "# Added by sip-init" ; \
-		echo "SIP=1" ; \
-		) >> "$PREFIX$DIR/local.conf" \
-		|| die "$PREFIX$DIR/safeboot.conf: unable to enable SIP?"
+		(
+			echo "# Added by sip-init"
+			echo "SIP=1"
+		) >>"$PREFIX$DIR/local.conf" ||
+			die "$PREFIX$DIR/safeboot.conf: unable to enable SIP?"
 	fi
 
 	if [ -z "$HASHDEV" ]; then
 		HASHDEV="/dev/mapper/$vg-hashes"
 		warn "$PREFIX$DIR/local.conf: adding HASHDEV=$HASHDEV"
-		echo "HASHDEV=\"$HASHDEV\"" >> "$PREFIX$DIR/local.conf" \
-		|| die "$PREFIX$DIR/local.conf: unable to add HASHDEV"
+		echo "HASHDEV=\"$HASHDEV\"" >>"$PREFIX$DIR/local.conf" ||
+			die "$PREFIX$DIR/local.conf: unable to add HASHDEV"
 	fi
 
 	warn "${ROOTDEV}: now configured for SIP hashed on ${HASHDEV}, but not yet signed!"
@@ -1593,8 +1640,8 @@ unlock() {
 	. /lib/cryptsetup/functions
 
 	TABFILE=/cryptroot/crypttab \
-	crypttab_foreach_entry unlock_entry \
-	|| die "unable to unlock every encrypted disk"
+		crypttab_foreach_entry unlock_entry ||
+		die "unable to unlock every encrypted disk"
 
 	lvm pvscan
 	lvm vgscan
@@ -1621,11 +1668,65 @@ mount-all() {
 	warn "$ROOTDEV: setting to read-only"
 	blockdev --setro "$ROOTDEV"
 
-	mount -o ro "$ROOTDEV" /root \
-	|| die "$ROOTDEV: unable to mount"
+	mount -o ro "$ROOTDEV" /root ||
+		die "$ROOTDEV: unable to mount"
 
 	mount_by_uuid /boot /root/etc/fstab
 	mount_by_uuid /boot/efi /root/etc/fstab
+}
+
+kernel_keep_versions() {
+	eval "$(apt-config shell DPKG Dir::bin::dpkg/f)"
+	test -n "$DPKG" || DPKG="/usr/bin/dpkg"
+
+	list="$("${DPKG}" -l | awk '/^[ih][^nc][ ]+pve-kernel-[0-9]+\./ && $2 !~ /-dbg(:.*)?$/ && $2 !~ /-dbgsym(:.*)?$/ { print $2; }' |
+		sed -e 's#^pve-kernel-##' -e 's#:[^:]\+ # #')"
+
+	sorted_list="$(echo "$list" | sort --unique --reverse --version-sort)"
+
+	[ -n "$1" ] && install_version="$1"
+
+	running_version="$(uname -r | tr 'A-Z' 'a-z')"
+
+	# ignore the currently running version if attempting a reproducible build
+	if [ -n "${SOURCE_DATE_EPOCH}" ]; then
+		running_version=""
+	elif [ ! -e "/boot/vmlinuz-$running_version" ]; then
+		# ignore the current version if it got removed, the "auto-remove" logic
+		# will not be affected, because either it is installed and thus we keep
+		# it in the list, or it's already removed anyway
+		running_version=""
+	fi
+
+	latest_2_versions="$(echo "$sorted_list" | grep -E '^[^ ]+-pve' | head -n2)"
+
+	series_metapackages="$(echo "$sorted_list" | grep -Ev '^[^ ]+-pve' | head -n2)"
+
+	oldseries="$(echo "$series_metapackages" | tail -n1)"
+	oldseries_latest_kernel="$(echo "$sorted_list" | grep -E "^${oldseries}\.[^ ]+-pve" | head -n1)"
+
+	if [ -e "$MANUAL_KERNEL_LIST" ]; then
+		manual_kernels="$(cat "$MANUAL_KERNEL_LIST")"
+	fi
+
+	kernels="$(
+		cat <<-EOF
+			$running_version
+			$install_version
+			$manual_kernels
+			$latest_2_versions
+			$series_metapackages
+			$oldseries_latest_kernel
+		EOF
+	)"
+
+	echo "$kernels" | sort -u | sed -e '/^$/ d'
+}
+
+boot_kernel_list() {
+	list="$(kernel_keep_versions "$@")"
+
+	echo "$list" | grep -vE '^[0-9]+\.[0-9]+$' || true
 }
 
 ########################################
@@ -1634,19 +1735,20 @@ if [ $# -lt 1 ]; then
 	die "Usage: $0 [$commands] ...."
 fi
 
-command=$1 ; shift
+command=$1
+shift
 #echo "$commands"
 
 case "$command" in
-	-h|--help)
-		echo "$usage"
-		exit 0
-		;;
-	#$commands)
-	yubikey-init|yubikey-pubkey|key-init|uefi-sign-keys|uefi-set-keys|luks-seal|pcrs-sign|sign|unify-kernel|sign-kernel|install-kernel|linux-sign|recovery-sign|reboot|recovery-reboot|remount|tpm2_trial_extend|sip-init|bootnext|unlock|mount-all)
-		$command "$@"
-		;;
-	*)
-		die "$0: subcommand $command unknown"
-		;;
+-h | --help)
+	echo "$usage"
+	exit 0
+	;;
+#$commands)
+yubikey-init | yubikey-pubkey | key-init | uefi-sign-keys | uefi-set-keys | luks-seal | pcrs-sign | sign | unify-kernel | sign-kernel | install-kernel | linux-sign | recovery-sign | reboot | recovery-reboot | remount | tpm2_trial_extend | sip-init | bootnext | unlock | mount-all)
+	$command "$@"
+	;;
+*)
+	die "$0: subcommand $command unknown"
+	;;
 esac
