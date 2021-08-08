@@ -1038,12 +1038,6 @@ install-kernel() {
 
 		OUTDIR="${mountpoint}/${TARGET}"
 
-		if [ ! -d "$OUTDIR" ]; then
-			warn "$OUTDIR: Creating directory on EFI System Partition"
-			mkdir -p "$OUTDIR" ||
-				die "$OUTDIR: unable to create"
-		fi
-
 		# manage bootmgr here?
 
 		if [ $# == 0 ]; then
@@ -1065,6 +1059,12 @@ install-kernel() {
 
 			linux_image="/boot/vmlinuz-${kver}"
 			initrd="/boot/initrd.img-${kver}"
+
+			if [ ! -d "$OUTDIR/$kver" ]; then
+				warn "$OUTDIR: Creating directory on EFI System Partition"
+				mkdir -p "$OUTDIR/$kver" ||
+					die "$OUTDIR/$kver: unable to create"
+			fi
 
 			if ! efibootmgr | grep "^Boot.* $TARGET-$curr_uuid-$kver\$"; then
 				# determine the device the EFI system partition is on
@@ -1091,6 +1091,7 @@ install-kernel() {
 			echo "Signing"
 			sign-kernel "$TMP/linux.efi" "$OUTDIR/$kver/linux.efi.new" ||
 				die "$OUTDIR/$kver/linux.efi: unable to sign"
+
 			# Duplicate the old image and atomically move the new kernel
 			# image to avoid potentially leaving an unbootable system
 			#if [ -r "$OUTDIR/linux.efi" ]; then
@@ -1103,6 +1104,8 @@ install-kernel() {
 
 			sha256sum "$OUTDIR/$kver/linux.efi"
 		done
+		umount "${mountpoint}" || \
+			{ warn "umount of ${path} failed - failure"; exit 0; }		
 	done
 }
 
