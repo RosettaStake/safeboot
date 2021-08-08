@@ -480,8 +480,8 @@ pcrs-sign() {
 	show_help "$1" "$pcrs_sign_usage"
 
 	prevent_rollback="${1}"
-	target="${2-linux}"
-	linux="$EFIDIR/$target/linux.efi"
+	# target="${2-linux}"
+	VER="${2}"
 
 	yubikey_daemon
 
@@ -506,78 +506,119 @@ pcrs-sign() {
 	tpm2 pcrread -o "$TMP/pcrs.bin" "sha256:$PCRS" ||
 		die "Unable to read TPM PCRs"
 
-	# Check to see if the PCR4 matches the expected value
-	# for the Linux kernel (which will be loaded as the boot application).
-	# This works on the Thinkpad X1, which extends PCR4
-	# with EFI_EV_SEPARATOR and then the PE hash of the EFI_BOOT_APPLICATION
-	linux_hash="$(sbsign.safeboot --hash-only "$linux" || die "unable to hash")"
-	ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend 0)"
-	#pcr4_computed="$(echo -n "${ev_sep}${linux_hash}" | hex2bin | sha256)"
+	cat "${ESP_LIST}" | while IFS= read -r curr_uuid; do
+		if [ -z "$curr_uuid" ]; then
+			continue
+		fi
+		if ! (echo "${curr_uuid}" | grep -qE '[0-9a-fA-F]{4}-[0-9a-fA-F]{4}'); then
+			warn "WARN: ${curr_uuid} read from ${ESP_LIST} does not look like a VFAT-UUID - skipping"
+			return
+		fi
+		path="/dev/disk/by-uuid/$curr_uuid"
+		if [ ! -e "${path}" ]; then
+			warn "WARN: ${path} does not exist - clean '${ESP_LIST}'! - skipping"
+			return
+		fi
+		mountpoint="${MOUNTROOT}/${curr_uuid}"
+		mkdir -p "${mountpoint}" ||
+			{
+				warn "creation of mountpoint ${mountpoint} failed - skipping"
+				return
+			}
+		mount "${path}" "${mountpoint}" ||
+			{
+				warn "mount of ${path} failed - skipping"
+				return
+			}
 
-	ev_act="$(echo -n "Calling EFI Application from Boot Option" | tpm2_trial_extend 0)"
-	ex_ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend "$ev_act")"
-	pcr4_computed="$(echo -n "${ex_ev_sep}${linux_hash}" | hex2bin | sha256)"
+		if [ -z "$VER" ]; then
+			BOOT_KVERS="$(boot_kernel_list "$VER")"
+		else
+			BOOT_KVERS="$(boot_kernel_list)"
+		fi
 
-	pcr2_read="$(tpm2 pcrread sha256:3 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
-	pcr4_read="$(tpm2 pcrread sha256:4 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
+		for kver in ${BOOT_KVERS}; do
+			linux="$mountpoint/$LINUX_TARGET/$kver/linux.efi"
+			# Check to see if the PCR4 matches the expected value
+			# for the Linux kernel (which will be loaded as the boot application).
+			# This works on the Thinkpad X1, which extends PCR4
+			# with EFI_EV_SEPARATOR and then the PE hash of the EFI_BOOT_APPLICATION
+			linux_hash="$(sbsign.safeboot --hash-only "$linux" || die "unable to hash")"
+			ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend 0)"
+			#pcr4_computed="$(echo -n "${ev_sep}${linux_hash}" | hex2bin | sha256)"
 
-	# HACK: this assumes PCR2 is the second in the list
-	if [ "$pcr2_read" != "$ev_sep" ]; then
-		warn "PCR2: ignoring BootMenu entries"
-		echo -n "$ev_sep" | hex2bin |
-			dd \
-				of="$TMP/pcrs.bin" \
-				conv=notrunc \
-				seek=1 \
-				bs=32 \
-				2>/dev/null ||
-			die "$TMP/pcrs.bin: unable to update PCR2"
-	fi
+			ev_act="$(echo -n "Calling EFI Application from Boot Option" | tpm2_trial_extend 0)"
+			ex_ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend "$ev_act")"
+			pcr4_computed="$(echo -n "${ex_ev_sep}${linux_hash}" | hex2bin | sha256)"
 
-	warn "$linux: PE hash $linux_hash"
+			pcr2_read="$(tpm2 pcrread sha256:3 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
+			pcr4_read="$(tpm2 pcrread sha256:4 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 
-	if [ "$pcr4_computed" == "$pcr4_read" ]; then
-		warn "PCR4 unchanged"
-	else
-		warn "PCR4 $pcr4_computed"
+			# HACK: this assumes PCR2 is the second in the list
+			if [ "$pcr2_read" != "$ev_sep" ]; then
+				warn "PCR2: ignoring BootMenu entries"
+				echo -n "$ev_sep" | hex2bin |
+					dd \
+						of="$TMP/pcrs.bin" \
+						conv=notrunc \
+						seek=1 \
+						bs=32 \
+						2>/dev/null ||
+					die "$TMP/pcrs.bin: unable to update PCR2"
+			fi
 
-		# HACK: replace the PCR with the computed one, assuming PCR14 is the 3rd
-		# initrd dd does not support iflag=fullblock status=none
-		echo -n "$pcr4_computed" | hex2bin |
-			dd \
-				of="$TMP/pcrs.bin" \
-				conv=notrunc \
-				seek=2 \
-				bs=32 \
-				2>/dev/null ||
-			die "$TMP/pcrs.bin: unable to update PCR4"
-	fi
+			warn "$linux: PE hash $linux_hash"
 
-	# Add a "normal" entry for PCR 14, which ensures that the TPM
-	# will only unseal during a normal boot, not a recovery boot.
-	# the unseal script will also extend PCR14 after unsealing
-	# to prevent the TPM from unsealing the secret a second time
-	#
-	# TODO: Fix the ordering if the boot mode PCR is not the last on the list
-	pcr14="$(echo -n "${LINUX_TARGET}" | tpm2_trial_extend "$PCR_DEFAULT")"
-	warn "mode=${LINUX_TARGET} PCR$BOOTMODE_PCR=$pcr14"
-	echo -n "$pcr14" | hex2bin \
-		>>"$TMP/pcrs.bin"
-	echo "final PCRs:"
-	xxd -g32 -c32 "$TMP/pcrs.bin" | awk '{print $2}'
+			if [ "$pcr4_computed" == "$pcr4_read" ]; then
+				warn "PCR4 unchanged"
+			else
+				warn "PCR4 $pcr4_computed"
 
-	tpm2_create_policy "$TMP/pcrs.bin" "$VERSION"
+				# HACK: replace the PCR with the computed one, assuming PCR14 is the 3rd
+				# initrd dd does not support iflag=fullblock status=none
+				echo -n "$pcr4_computed" | hex2bin |
+					dd \
+						of="$TMP/pcrs.bin" \
+						conv=notrunc \
+						seek=2 \
+						bs=32 \
+						2>/dev/null ||
+					die "$TMP/pcrs.bin: unable to update PCR4"
+			fi
 
-	openssl dgst \
-		-sha256 \
-		-sign "$KEY" \
-		${KEY_ENGINE:+ 			-keyform engine 			-engine pkcs11 		} \
-		-out "$TMP/pcr.policy.sig" \
-		"$TMP/pcr.policy" ||
-		die "Unable to sign PCR policy"
+			# Add a "normal" entry for PCR 14, which ensures that the TPM
+			# will only unseal during a normal boot, not a recovery boot.
+			# the unseal script will also extend PCR14 after unsealing
+			# to prevent the TPM from unsealing the secret a second time
+			#
+			# TODO: Fix the ordering if the boot mode PCR is not the last on the list
+			pcr14="$(echo -n "${LINUX_TARGET}-$curr_uuid-$kver" | tpm2_trial_extend "$PCR_DEFAULT")"
+			warn "mode=${LINUX_TARGET} PCR$BOOTMODE_PCR=$pcr14"
+			echo -n "$pcr14" | hex2bin \
+				>>"$TMP/pcrs.bin"
+			echo "final PCRs:"
+			xxd -g32 -c32 "$TMP/pcrs.bin" | awk '{print $2}'
 
-	efivar_write "$PCR_SIGNATURE" <"$TMP/pcr.policy.sig" ||
-		die "$PCR_SIGNATURE: Unable to write to EFI variable"
+			tpm2_create_policy "$TMP/pcrs.bin" "$VERSION"
+
+			openssl dgst \
+				-sha256 \
+				-sign "$KEY" \
+				${KEY_ENGINE:+ 			-keyform engine 			-engine pkcs11 		} \
+				-out "$TMP/pcr.policy.sig" \
+				"$TMP/pcr.policy" ||
+				die "Unable to sign PCR policy"
+
+			efivar_write "$PCR_SIGNATURE-$curr_uuid-$kver" <"$TMP/pcr.policy.sig" ||
+				die "$PCR_SIGNATURE-$curr_uuid-$kver: Unable to write to EFI variable"
+
+		done
+		umount "${mountpoint}" ||
+			{
+				warn "umount of ${path} failed - failure"
+				exit 0
+			}
+	done
 }
 
 luks_seal_usage='
@@ -804,7 +845,7 @@ luks-seal() {
 			die "Unable to update initramfs"
 
 		warn "-------- Need to sign new kernel --------"
-		linux-sign "$LINUX_TARGET" ||
+		linux-sign ||
 			die "Unable to sign kernel"
 	fi
 
@@ -1040,15 +1081,6 @@ install-kernel() {
 
 		# manage bootmgr here?
 
-		if [ $# == 0 ]; then
-			warn "Using /proc/cmdline"
-			cat /proc/cmdline >"$TMP/cmdline.txt"
-		else
-			echo -n "$@" >"$TMP/cmdline.txt"
-		fi
-
-		echo "Kernel commandline: '$(cat "$TMP/cmdline.txt")'"
-
 		if [ -z "$VER" ]; then
 			BOOT_KVERS="$(boot_kernel_list "$VER")"
 		else
@@ -1065,6 +1097,15 @@ install-kernel() {
 				mkdir -p "$OUTDIR/$kver" ||
 					die "$OUTDIR/$kver: unable to create"
 			fi
+
+			if [ $# == 0 ]; then
+				warn "Using /proc/cmdline"
+				"$(cat /proc/cmdline) PCR=$TARGET-$curr_uuid-$kver" >"$TMP/cmdline.txt"
+			else
+				echo -n "$@ PCR=$TARGET-$curr_uuid-$kver" >"$TMP/cmdline.txt"
+			fi
+
+			echo "Kernel commandline: '$(cat "$TMP/cmdline.txt")'"
 
 			if ! efibootmgr | grep "^Boot.* $TARGET-$curr_uuid-$kver\$"; then
 				# determine the device the EFI system partition is on
@@ -1104,8 +1145,11 @@ install-kernel() {
 
 			sha256sum "$OUTDIR/$kver/linux.efi"
 		done
-		umount "${mountpoint}" || \
-			{ warn "umount of ${path} failed - failure"; exit 0; }		
+		umount "${mountpoint}" ||
+			{
+				warn "umount of ${path} failed - failure"
+				exit 0
+			}
 	done
 }
 
@@ -1142,12 +1186,12 @@ linux-sign() {
 	fi
 
 	# default is linux
-	if [ -n "$1" ]; then
-		TARGET=$1
-		shift
-	else
-		TARGET=${LINUX_TARGET}
-	fi
+	# if [ -n "$1" ]; then
+	# 	TARGET=$1
+	# 	shift
+	# else
+	# 	TARGET=${LINUX_TARGET}
+	# fi
 
 	if [ -n "$1" ]; then
 		VER=$1
@@ -1197,7 +1241,7 @@ linux-sign() {
 		"
 	fi
 
-	install-kernel "$TARGET" \
+	install-kernel "$LINUX_TARGET" \
 		"$VER" \
 		"$LINUX_COMMANDLINE" \
 		"safeboot.mode=$TARGET" \
@@ -1246,7 +1290,8 @@ recovery-sign() {
 		return 2
 	fi
 
-	VER=$1 ; shift
+	VER=$1
+	shift
 
 	if [ "$SIP" == 1 ]; then
 		# ensure that the root file system is really
