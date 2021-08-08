@@ -1246,6 +1246,8 @@ recovery-sign() {
 		return 2
 	fi
 
+	VER=$1 ; shift
+
 	if [ "$SIP" == 1 ]; then
 		# ensure that the root file system is really
 		# read-only; otherwise it will corrupt the hashes
@@ -1257,6 +1259,7 @@ recovery-sign() {
 	fi
 
 	install-kernel "${RECOVERY_TARGET}" \
+		"$VER" \
 		"$RECOVERY_COMMANDLINE" \
 		"$ROOT_ARGS" \
 		"safeboot.mode=$RECOVERY_TARGET" \
