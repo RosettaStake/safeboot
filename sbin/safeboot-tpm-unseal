@@ -84,7 +84,7 @@ VERSION="$(tpm2 nvread "$TPM_NV_VERSION" --size 8 | bin2hex)"
 TPM_SESSION_TYPE=policy
 TPM_POLICY_SIG="$TMP/pcr.policy.sig"
 
-efivar_read "$PCR_SIGNATURE-$PCR" > "$TPM_POLICY_SIG"
+efivar_read "$PCR-$PCR_SIGNATURE" > "$TPM_POLICY_SIG"
 tpm2_create_policy "" "$VERSION"
 
 tpm2 flushcontext --transient-object

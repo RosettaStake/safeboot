@@ -503,8 +503,6 @@ pcrs-sign() {
 
 	# If pre-computed PCRs are known, they can be used here instead
 	# TODO: allow PCRs to be passed in
-	tpm2 pcrread -o "$TMP/pcrs.bin" "sha256:$PCRS" ||
-		die "Unable to read TPM PCRs"
 
 	cat "${ESP_LIST}" | while IFS= read -r curr_uuid; do
 		if [ -z "$curr_uuid" ]; then
@@ -538,6 +536,8 @@ pcrs-sign() {
 		fi
 
 		for kver in ${BOOT_KVERS}; do
+			tpm2 pcrread -o "$TMP/pcrs.bin" "sha256:$PCRS" ||
+				die "Unable to read TPM PCRs"
 			linux="$mountpoint/$LINUX_TARGET/$kver/linux.efi"
 			# Check to see if the PCR4 matches the expected value
 			# for the Linux kernel (which will be loaded as the boot application).
@@ -609,8 +609,8 @@ pcrs-sign() {
 				"$TMP/pcr.policy" ||
 				die "Unable to sign PCR policy"
 
-			efivar_write "$PCR_SIGNATURE-${LINUX_TARGET}-$curr_uuid-$kver" <"$TMP/pcr.policy.sig" ||
-				die "$PCR_SIGNATURE-${LINUX_TARGET}-$curr_uuid-$kver: Unable to write to EFI variable"
+			efivar_write "${LINUX_TARGET}-$curr_uuid-$kver-$PCR_SIGNATURE" <"$TMP/pcr.policy.sig" ||
+				die "${LINUX_TARGET}-$curr_uuid-$kver-$PCR_SIGNATURE: Unable to write to EFI variable"
 
 		done
 		umount "${mountpoint}" ||
