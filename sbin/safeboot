@@ -513,6 +513,9 @@ pcrs-sign() {
 			return
 		fi
 		path="/dev/disk/by-uuid/$curr_uuid"
+
+		dev="$(lsblk -no pkname $path)"
+
 		if [ ! -e "${path}" ]; then
 			warn "WARN: ${path} does not exist - clean '${ESP_LIST}'! - skipping"
 			return
@@ -550,12 +553,20 @@ pcrs-sign() {
 			ev_act="$(echo -n "Calling EFI Application from Boot Option" | tpm2_trial_extend 0)"
 			ex_ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend "$ev_act")"
 			pcr4_computed="$(echo -n "${ex_ev_sep}${linux_hash}" | hex2bin | sha256)"
+			# Predict pcr5
+			gpt_header="$(dd if=/dev/nvme0n1 bs=1 skip=512 count=92 | xxd -p | tr -d '\n')"
+			number_of_partitions="$(ls /sys/block/$dev/*/partition | wc -l)"
+			partitions_entries_size="$(($number_of_partitions*128))"
+			gpt_entries="$(dd if=/dev/nvme0n1 bs=1 skip=1024 count=$am | xxd -p | tr -d '\n')"
+			number_of_partitions_hex="$(printf "%02X00000000000000" $number_of_partitions)"
+			pcr5_computed="$(echo "$gpt_header$number_of_partitions_hex$gpt_entries" | xxd -p -r | sha256sum - | cut -d' ' -f1 ;)"
 
-			pcr2_read="$(tpm2 pcrread sha256:3 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
+			pcr3_read="$(tpm2 pcrread sha256:3 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 			pcr4_read="$(tpm2 pcrread sha256:4 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
+			pcr5_read="$(tpm2 pcrread sha256:5 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 
-			# HACK: this assumes PCR2 is the second in the list
-			if [ "$pcr2_read" != "$ev_sep" ]; then
+			# HACK: this assumes PCR3 is the second in the list
+			if [ "$pcr3_read" != "$ev_sep" ]; then
 				warn "PCR2: ignoring BootMenu entries"
 				echo -n "$ev_sep" | hex2bin |
 					dd \
@@ -586,13 +597,27 @@ pcrs-sign() {
 					die "$TMP/pcrs.bin: unable to update PCR4"
 			fi
 
+			if [ "$pcr5_computed" == "$pcr5_read" ]; then
+				warn "PCR5 unchanged"
+			else
+				warn "PCR5: $pcr5_computed"
+				echo -n "$pcr5_computed" | hex2bin |
+					dd \
+						of="$TMP/pcrs.bin" \
+						conv=notrunc \
+						seek=3 \
+						bs=32 \
+						2>/dev/null ||
+					die "$TMP/pcrs.bin: unable to update PCR5"
+			fi
+
 			# Add a "normal" entry for PCR 14, which ensures that the TPM
 			# will only unseal during a normal boot, not a recovery boot.
 			# the unseal script will also extend PCR14 after unsealing
 			# to prevent the TPM from unsealing the secret a second time
 			#
 			# TODO: Fix the ordering if the boot mode PCR is not the last on the list
-			pcr14="$(echo -n "${LINUX_TARGET}-$curr_uuid-$kver" | tpm2_trial_extend "$PCR_DEFAULT")"
+			pcr14="$(echo -n "${LINUX_TARGET}" | tpm2_trial_extend "$PCR_DEFAULT")"
 			warn "mode=${LINUX_TARGET} PCR$BOOTMODE_PCR=$pcr14"
 			echo -n "$pcr14" | hex2bin \
 				>>"$TMP/pcrs.bin"
