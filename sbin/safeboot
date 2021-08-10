@@ -557,7 +557,7 @@ pcrs-sign() {
 			gpt_header="$(dd if=/dev/$dev bs=1 skip=512 count=92 | xxd -p | tr -d '\n')"
 			number_of_partitions="$(ls /sys/block/$dev/*/partition | wc -l)"
 			partitions_entries_size="$(($number_of_partitions*128))"
-			gpt_entries="$(dd if=/dev/$dev bs=1 skip=1024 count=$am | xxd -p | tr -d '\n')"
+			gpt_entries="$(dd if=/dev/$dev bs=1 skip=1024 count=$partitions_entries_size | xxd -p | tr -d '\n')"
 			number_of_partitions_hex="$(printf "%02X00000000000000" $number_of_partitions)"
 			gpt_hash="$(echo "$gpt_header$number_of_partitions_hex$gpt_entries" | xxd -p -r | sha256sum - | cut -d' ' -f1 ;)"
 			pcr5_computed="$(echo "$gpt_hash" | hex2bin | tpm2_trial_extend "$ev_sep")"
