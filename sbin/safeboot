@@ -1318,8 +1318,12 @@ recovery-sign() {
 		return 2
 	fi
 
-	VER="$1"
-	shift
+	if [ -n "$1" ]; then
+		VER="$1"
+		shift
+	else
+		VER=""
+	fi
 
 	if [ "$SIP" == 1 ]; then
 		# ensure that the root file system is really
