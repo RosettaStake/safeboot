@@ -556,11 +556,11 @@ pcrs-sign() {
 			# Predict pcr5
 			gpt_header="$(dd if=/dev/$dev bs=1 skip=512 count=92 | xxd -p | tr -d '\n')"
 			number_of_partitions="$(ls /sys/block/$dev/*/partition | wc -l)"
-			partitions_entries_size="$(($number_of_partitions*128))"
+			partitions_entries_size="$(($number_of_partitions * 128))"
 			gpt_entries="$(dd if=/dev/$dev bs=1 skip=1024 count=$partitions_entries_size | xxd -p | tr -d '\n')"
 			number_of_partitions_hex="$(printf "%02X00000000000000" $number_of_partitions)"
-			gpt_hash="$(echo "$gpt_header$number_of_partitions_hex$gpt_entries" | xxd -p -r | sha256sum - | cut -d' ' -f1 ;)"
-			pcr5_computed="$(echo "$gpt_hash" | hex2bin | tpm2_trial_extend "$ev_sep")"
+			gpt_hash="$(echo -n "$gpt_header$number_of_partitions_hex$gpt_entries" | hex2bin | sha256)"
+			pcr5_computed="$(echo -n "$ev_sep$gpt_hash" | hex2bin | sha256)"
 
 			pcr3_read="$(tpm2 pcrread sha256:3 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 			pcr4_read="$(tpm2 pcrread sha256:4 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
