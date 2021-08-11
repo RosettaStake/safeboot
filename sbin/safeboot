@@ -560,6 +560,7 @@ pcrs-sign() {
 			gpt_entries="$(dd if=/dev/$dev bs=1 skip=1024 count=$partitions_entries_size | xxd -p | tr -d '\n')"
 			number_of_partitions_hex="$(printf "%02X00000000000000" $number_of_partitions)"
 			gpt_hash="$(echo -n "$gpt_header$number_of_partitions_hex$gpt_entries" | hex2bin | sha256)"
+			pcr5_computed="$(echo -n "$ev_sep$gpt_hash" | hex2bin | sha256)"
             pcr5_computed="$(echo -n "Exit Boot Services Invocation" | tpm2_trial_extend $pcr5_computed)"
             pcr5_computed="$(echo -n "Exit Boot Services Returned with Success" | tpm2_trial_extend $pcr5_computed)"
 
