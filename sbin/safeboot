@@ -560,7 +560,9 @@ pcrs-sign() {
 			gpt_entries="$(dd if=/dev/$dev bs=1 skip=1024 count=$partitions_entries_size | xxd -p | tr -d '\n')"
 			number_of_partitions_hex="$(printf "%02X00000000000000" $number_of_partitions)"
 			gpt_hash="$(echo -n "$gpt_header$number_of_partitions_hex$gpt_entries" | hex2bin | sha256)"
-			pcr5_computed="$(echo -n "$ev_sep$gpt_hash" | hex2bin | sha256)"
+            pcr5_computed="$(echo -n "Exit Boot Services Invocation" | tpm2_trial_extend $pcr5_computed)"
+            pcr5_computed="$(echo -n "Exit Boot Services Returned with Success" | tpm2_trial_extend $pcr5_computed)"
+
 
 			pcr3_read="$(tpm2 pcrread sha256:3 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 			pcr4_read="$(tpm2 pcrread sha256:4 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
@@ -1220,7 +1222,7 @@ linux-sign() {
 	# fi
 
 	if [ -n "$1" ]; then
-		VER=$1
+		VER="$1"
 		shift
 	else
 		VER=""
@@ -1316,7 +1318,7 @@ recovery-sign() {
 		return 2
 	fi
 
-	VER=$1
+	VER="$1"
 	shift
 
 	if [ "$SIP" == 1 ]; then

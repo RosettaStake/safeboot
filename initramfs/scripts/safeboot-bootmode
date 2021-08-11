@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Ensure that the boot mode PCR is set by the init-top initramfs.
 # This is run in the initramfs context, not in the normal user space.
 #
