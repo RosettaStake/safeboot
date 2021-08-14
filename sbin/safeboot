@@ -1188,7 +1188,7 @@ install-kernel() {
 
 			if efibootmgr | grep "^Boot.* $TARGET-$curr_uuid-$kver\$"; then
 				# determine the device the EFI system partition is on
-				entry=efibootmgr | grep "^Boot.* $TARGET-$curr_uuid-$kver\$"
+				entry="$(efibootmgr | grep "^Boot.* $TARGET-$curr_uuid-$kver\$")"
 				entry=${entry##*Boot}
 				entry=${entry%%\**} 
 
