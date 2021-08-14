@@ -264,7 +264,7 @@ efivar_write() {
 
 efivar_remove() {
 	efivar_setup "${1:-}"
-	if [ -e "$var"]; then
+	if [ -e "$var" ]; then
 		chattr -i "$var"
 		rm "$var"
 	fi
