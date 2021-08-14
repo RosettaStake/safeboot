@@ -540,7 +540,7 @@ pcrs-sign() {
 		for kver in ${BOOT_KVERS}; do
 			tpm2 pcrread -o "$TMP/pcrs.bin" "sha256:$PCRS" ||
 				die "Unable to read TPM PCRs"
-			linux="$mountpoint/$LINUX_TARGET/$kver/linux.efi"
+			linux="$mountpoint/$EFIDIR/$LINUX_TARGET/$kver/linux.efi"
 			# Check to see if the PCR4 matches the expected value
 			# for the Linux kernel (which will be loaded as the boot application).
 			# This works on the Thinkpad X1, which extends PCR4
