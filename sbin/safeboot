@@ -568,17 +568,17 @@ pcrs-sign() {
 			pcr5_read="$(tpm2 pcrread sha256:5 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 
 			# HACK: this assumes PCR3 is the second in the list
-			if [ "$pcr3_read" != "$ev_sep" ]; then
-				warn "PCR2: ignoring BootMenu entries"
-				echo -n "$ev_sep" | hex2bin |
-					dd \
-						of="$TMP/pcrs.bin" \
-						conv=notrunc \
-						seek=1 \
-						bs=32 \
-						2>/dev/null ||
-					die "$TMP/pcrs.bin: unable to update PCR2"
-			fi
+			# if [ "$pcr3_read" != "$ev_sep" ]; then
+			# 	warn "PCR2: ignoring BootMenu entries"
+			# 	echo -n "$ev_sep" | hex2bin |
+			# 		dd \
+			# 			of="$TMP/pcrs.bin" \
+			# 			conv=notrunc \
+			# 			seek=1 \
+			# 			bs=32 \
+			# 			2>/dev/null ||
+			# 		die "$TMP/pcrs.bin: unable to update PCR2"
+			# fi
 
 			warn "$linux: PE hash $linux_hash"
 
@@ -1104,7 +1104,7 @@ install-kernel() {
 				return
 			}
 
-		OUTDIR="${mountpoint}/${TARGET}"
+		OUTDIR="${mountpoint}/${EFIDIR}/${TARGET}"
 
 		# manage bootmgr here?
 
@@ -1146,7 +1146,7 @@ install-kernel() {
 					--disk "$DEV" \
 					--part $part \
 					--label "$TARGET-$curr_uuid-$kver" \
-					--loader "\\$TARGET\\$kver\\linux.efi" ||
+					--loader "\\${EFIDIR}\\$TARGET\\$kver\\linux.efi" ||
 					die "efibootmgr: failed to create $TARGET entry"
 			fi
 
@@ -1185,6 +1185,16 @@ install-kernel() {
 			echo "${BOOT_KVERS}" | grep -q "${kver}" && continue
 			warn "	Removing old version ${kver}"
 			rm -rf "${kerneldir}"
+
+			if efibootmgr | grep "^Boot.* $TARGET-$curr_uuid-$kver\$"; then
+				# determine the device the EFI system partition is on
+				entry=efibootmgr | grep "^Boot.* $TARGET-$curr_uuid-$kver\$"
+				entry=${entry##*Boot}
+				entry=${entry%%\**} 
+
+				warn "$OUTDIR: Removing boot menu item on $DEV"
+				efibootmgr -b $entry -B || die "efibootmgr: failed to remove $TARGET entry"
+			fi
 		done
 
 		umount "${mountpoint}" ||
