@@ -48,7 +48,6 @@ INITRD=$PREFIX${INITRD:-/boot/initrd.img}
 EFIDIR=$PREFIX${EFIDIR:-/boot/efi/EFI}
 ESP_LIST="/etc/kernel/proxmox-boot-uuids"
 MANUAL_KERNEL_LIST="/etc/kernel/pve-efiboot-manual-kernels"
-MOUNTROOT="${TMPDIR:-/var/tmp}/espmounts"
 
 if [ "$KEY" == "pkcs11:" ]; then
 	# KEY is a hardware token, use the yubikey engine
@@ -520,7 +519,7 @@ pcrs-sign() {
 			warn "WARN: ${path} does not exist - clean '${ESP_LIST}'! - skipping"
 			return
 		fi
-		mountpoint="${MOUNTROOT}/${curr_uuid}"
+		mountpoint="$TMP/${curr_uuid}"
 		mkdir -p "${mountpoint}" ||
 			{
 				warn "creation of mountpoint ${mountpoint} failed - skipping"
@@ -561,9 +560,8 @@ pcrs-sign() {
 			number_of_partitions_hex="$(printf "%02X00000000000000" $number_of_partitions)"
 			gpt_hash="$(echo -n "$gpt_header$number_of_partitions_hex$gpt_entries" | hex2bin | sha256)"
 			pcr5_computed="$(echo -n "$ev_sep$gpt_hash" | hex2bin | sha256)"
-            pcr5_computed="$(echo -n "Exit Boot Services Invocation" | tpm2_trial_extend $pcr5_computed)"
-            pcr5_computed="$(echo -n "Exit Boot Services Returned with Success" | tpm2_trial_extend $pcr5_computed)"
-
+			pcr5_computed="$(echo -n "Exit Boot Services Invocation" | tpm2_trial_extend $pcr5_computed)"
+			pcr5_computed="$(echo -n "Exit Boot Services Returned with Success" | tpm2_trial_extend $pcr5_computed)"
 
 			pcr3_read="$(tpm2 pcrread sha256:3 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
 			pcr4_read="$(tpm2 pcrread sha256:4 | tail -1 | cut -c9- | tr '[:upper:]' '[:lower:]')"
@@ -1094,7 +1092,7 @@ install-kernel() {
 			warn "WARN: ${path} does not exist - clean '${ESP_LIST}'! - skipping"
 			return
 		fi
-		mountpoint="${MOUNTROOT}/${curr_uuid}"
+		mountpoint="$TMP/${curr_uuid}"
 		mkdir -p "${mountpoint}" ||
 			{
 				warn "creation of mountpoint ${mountpoint} failed - skipping"
@@ -1174,6 +1172,21 @@ install-kernel() {
 
 			sha256sum "$OUTDIR/$kver/linux.efi"
 		done
+
+		# Remove old kernels
+		for kerneldir in "$OUTDIR"/*; do
+			if [ ! -d "${kerneldir}" ]; then
+				warn "	${kerneldir} is not a directory - skipping"
+				continue
+			fi
+
+			kver="$(echo "${kerneldir}" | sed -r "s#^$OUTDIR/(.+)\$#\\1#")"
+
+			echo "${BOOT_KVERS}" | grep -q "${kver}" && continue
+			warn "	Removing old version ${kver}"
+			rm -rf "${kerneldir}"
+		done
+
 		umount "${mountpoint}" ||
 			{
 				warn "umount of ${path} failed - failure"

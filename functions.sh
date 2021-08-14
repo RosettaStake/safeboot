@@ -30,6 +30,15 @@ cleanup() {
 		warn "$TMP: Unmounting"
 		umount "$TMP" || die "DANGER: umount $TMP failed. Secrets might be exposed."
 	fi
+
+	for mount in "$TMP"/* ; do
+		if echo "${mount}" | grep -qE '[0-9a-fA-F]{4}-[0-9a-fA-F]{4}' && \
+			mountpoint -q "${mount}"; then
+			umount "${mount}" || \
+			    { warn "umount of ${mount} failed - failure"; exit 0; }
+		fi
+	done
+
 	[[ -n $TMP ]] && rm -rf "$TMP"
 }
 
