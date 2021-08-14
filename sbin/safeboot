@@ -1195,6 +1195,9 @@ install-kernel() {
 				warn "$OUTDIR: Removing boot menu item on $DEV"
 				efibootmgr -b $entry -B || die "efibootmgr: failed to remove $TARGET entry"
 			fi
+			if [ "$TARGET" == "$LINUX_TARGET" ]; then
+				efivar_remove "${LINUX_TARGET}-$curr_uuid-$kver-$PCR_SIGNATURE"
+			fi
 		done
 
 		umount "${mountpoint}" ||

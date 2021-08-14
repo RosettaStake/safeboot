@@ -262,6 +262,12 @@ efivar_write() {
 	cat "$TMP/efivar.bin" > "$var"
 }
 
+efivar_remove() {
+	efivar_setup "${1:-}"
+	chattr -i "$var"
+	rm "$var"
+}
+
 efivar_read() {
 	efivar_setup "${1:-}"
 	tail -c +5 < "$var"
