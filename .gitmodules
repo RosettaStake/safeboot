@@ -14,15 +14,3 @@
 [submodule "tpm2-tss"]
 	path = tpm2-tss
 	url = https://github.com/tpm2-software/tpm2-tss
-[submodule "swtpm"]
-	path = swtpm
-	url = https://github.com/stefanberger/swtpm
-[submodule "libtpms"]
-	path = libtpms
-	url = https://github.com/stefanberger/libtpms/
-[submodule "busybox"]
-	path = busybox
-	url = git://busybox.net/busybox.git
-[submodule "kexec-tools"]
-	path = kexec-tools
-	url = https://github.com/horms/kexec-tools

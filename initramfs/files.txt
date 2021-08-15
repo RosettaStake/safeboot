@@ -5,8 +5,6 @@ mkdir lib64
 symlink ../lib64 lib/x86_64-linux-gnu
 
 # coreutils are provided by busybox
-bin/busybox
-symlink busybox bin/sh
 /bin/bash
 
 # disk management
@@ -16,11 +14,7 @@ symlink busybox bin/sh
 
 # safeboot tools
 ./initramfs/init .
-./initramfs/bootscript
-./initramfs/config.sh etc
-./initramfs/udhcpc.sh etc
 ./sbin/safeboot
-./sbin/tpm2-attest
 ./bin/tpm2
 ./build/tpm2-tss/src/tss2-tcti/.libs/libtss2-tcti-device.so.0 lib
 ./functions.sh etc/safeboot

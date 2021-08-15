@@ -59,9 +59,6 @@ else
 fi
 
 # Set the default values for the other parameters
-# Do not assign ROOTDEV or HASHDEV; they will be detected in rootdev-check
-: "${ROOTDEV:=}"
-: "${HASHDEV:=}"
 : "${LINUX_TARGET:=linux}"
 : "${RECOVERY_TARGET:=recovery}"
 : "${SIP:=0}"
@@ -70,57 +67,6 @@ fi
 : "${LINUX_COMMANDLINE:=}"
 : "${RECOVERY_COMMANDLINE:=${LINUX_COMMANDLINE}}"
 : "${SEAL_PIN:=1}"
-
-#
-# Ensure that there is a valid root device
-#
-rootdev-check() {
-	if [ -z "${ROOTDEV}" ]; then
-		ROOTDEV="$(mount | awk '/ on \/ / { print $1 }')"
-		warn "\$ROOTDEV is not set. Guessing $ROOTDEV"
-		TEST_ROOTDEV=1
-	fi
-
-	if [ ! -e "$ROOTDEV" ]; then
-		die "$ROOTDEV: root device does not exist?"
-	fi
-
-	if [ ! -r "$ROOTDEV" ]; then
-		die "$ROOTDEV: root device permission denied"
-	fi
-
-	if [ "$TEST_ROOTDEV" = 1 ]; then
-		warn "$PREFXI$DIR/local.conf: setting \$ROOTDEV=$ROOTDEV"
-		echo "ROOTDEV=\"$ROOTDEV\"" >>$PREFIX$DIR/local.conf ||
-			die "$PREFIX$DIR/local.conf: Unable to set \$ROOTDEV"
-		TEST_ROOTDEV=0
-	fi
-
-	if [ "$SIP" != 1 ]; then
-		return 0
-	fi
-
-	if [ -z "$HASHDEV" ]; then
-		HASHDEV="${ROOTDEV%-*}-hashes"
-		warn "\$HASHDEV is not set. Guessing $HASHDEV (same volume group as \$ROOTDEV)"
-		TEST_HASHDEV=1
-	fi
-
-	if [ ! -e "$HASHDEV" ]; then
-		die "$HASHDEV: hash device does not exist. Please set in $PREFIX$DIR/local.conf"
-	fi
-
-	if [ ! -r "$HASHDEV" ]; then
-		die "$HASHDEV: hash device permission denied. Please set in $PREFIX$DIR/local.conf"
-	fi
-
-	if [ "$TEST_HASHDEV" = 1 ]; then
-		warn "$PREFXI$DIR/local.conf: setting \$HASHDEV=$HASHDEV"
-		echo "HASHDEV=\"$HASHDEV\"" >>$PREFIX$DIR/local.conf ||
-			die "$PREFIX$DIR/local.conf: Unable to set \$HASHDEV"
-		TEST_HASHDEV=0
-	fi
-}
 
 usage='
 # Safe Boot subcommands
@@ -242,132 +188,6 @@ pem2der() {
 		die "$pub_file: Unable to create PUB file from $1"
 }
 
-yubikey_daemon() {
-	if ! pidof pcscd >/dev/null; then
-		warn "Starting PCSCD for yubikey support"
-		pcscd --foreground &
-	fi
-}
-
-yubikey_init_usage='
-## yubikey-init
-Usage:
-```
-safeboot yubikey-init "subject"
-```
-
-Generate a new x509 signing key on an attached Yubikey device
-and set the certificate subject to the provided argument.
-The public key certificate will be written to `/etc/safeboot/cert.pem`
-and will also be used for the UEFI SecureBoot variables.
-
-Due to a limitation in the OpenSSL PKCS11 engine, you have to enter
-the password multiple times (once for the engine, and then once for
-the signature).
-
-The subject must be written as a "distinguished name":
-```
-       /CN=host.example.com/OU=test/O=example.com/
-```
-'
-usage+=$yubikey_init_usage
-commands+="|yubikey-init"
-
-yubikey-init() {
-	show_help "$1" "$yubikey_init_usage"
-	if [ $# == 0 ]; then
-		die "$yubikey_init_usage"
-	fi
-
-	subject="$1"
-
-	if [ "$KEY" != "pkcs11:" ]; then
-		warn "Adding KEY=pkcs11: to local.conf"
-		(
-			echo '# Added by yubikey-init'
-			echo 'KEY="pkcs11:"'
-		) >>$PREFIX$DIR/local.conf ||
-			die "$PREFIX$DIR/local.conf: Unable to append"
-		KEY="pkcs11:"
-	fi
-
-	if [ -r "$CERT" ]; then
-		warn "WARNING! $CERT already exists; copying to $CERT.orig"
-		mv "$CERT" "$CERT.orig" ||
-			die "$CERT: unable to make backup"
-	fi
-
-	read -r -p "WARNING: This will erase any existing key on the yubikey. Are you sure? " really_do_it
-	if [ "$really_do_it" != "y" ]; then
-		die "Not overwriting existing key"
-	fi
-
-	# will take a while and overwrite any existing private keys
-	warn "Generating new key..."
-	yubico-piv-tool \
-		-s 9c \
-		-a generate \
-		-o "$TMP/pubkey.pem" ||
-		die "unable to generate new key"
-
-	warn "Self-signing certificate"
-	yubico-piv-tool \
-		-s 9c \
-		-a verify-pin \
-		-a selfsign-certificate \
-		-S "$subject" \
-		-i "$TMP/pubkey.pem" \
-		-o "$CERT" ||
-		die "Unable to self-sign certificate"
-
-	warn "Importing self-signed certificate into key"
-	yubico-piv-tool \
-		-s 9c \
-		-a import-certificate \
-		-i "$CERT" ||
-		die "Unable to import certificate into key"
-
-	pem2der "$CERT"
-
-	yubico-piv-tool \
-		-a status ||
-		die "Unable to retrieve key status"
-}
-
-########################################
-yubikey_pubkey_usage='
-## yubikey-pubkey
-Usage:
-```
-safeboot yubikey-pubkey cert.pem
-```
-
-Extract the public key certificate in PEM, DER and PUB format.
-The `sbsign` tool wants PEM, the `kmodsign` tool wants DER,
-the `tpm2-tools` wants a raw public key.
-The best part about standards...
-'
-usage+=$yubikey_pubkey_usage
-commands+="|yubikey-pubkey"
-
-yubikey-pubkey() {
-	show_help "$1" "$yubikey_pubkey_usage"
-	pem="$1"
-
-	if [ -z "$pem" ]; then
-		die "$yubikey_pubkey_usage"
-	fi
-
-	warn "Extracting signing cert from yubikey"
-	yubico-piv-tool \
-		-s 9c \
-		-a read-certificate \
-		-o "$pem" ||
-		die "$pem: unable to read from yubikey"
-
-	pem2der "$pem"
-}
-
 ########################################
 
 uefi_sign_keys_usage='
@@ -481,8 +301,6 @@ pcrs-sign() {
 	prevent_rollback="${1}"
 	# target="${2-linux}"
 	VER="${2}"
-
-	yubikey_daemon
 
 	if [ "$prevent_rollback" = "prevent-rollback" ]; then
 		warn "$linux: Incrementing TPM version to prevent rollback"
@@ -686,8 +504,6 @@ luks-seal() {
 		BOOTMODE_PCR="$1"
 		shift
 	fi
-
-	yubikey_daemon
 
 	KEYSLOT=1
 
@@ -910,8 +726,6 @@ sign() {
 	if [ -z "$OUT" ]; then
 		OUT="$IN.signed"
 	fi
-
-	yubikey_daemon
 
 	sbsign.safeboot \
 		$KEY_ENGINE \
@@ -1235,7 +1049,7 @@ commands+="|linux-sign"
 
 linux-sign() {
 	show_help "$1" "$linux_sign_usage"
-	#rootdev-check -
+	
 	if [ ! -e ${ESP_LIST} ]; then
 		return 2
 	fi
@@ -1255,47 +1069,6 @@ linux-sign() {
 		VER=""
 	fi
 
-	if [ "$SIP" == 1 ]; then
-		if mount | grep "^${ROOTDEV} "; then
-			remount_ro "$ROOTDEV" ||
-				die "${ROOTDEV}: Could not remount"
-		fi
-
-		if [ -n "$HASH" ]; then
-			warn "$ROOTDEV: Using hash $HASH"
-		elif [ -n "$HASHFILE" ]; then
-			warn "$ROOTDEV: Using hash file $HASFILE"
-			HASH="$(awk '/Root hash:/ { print $3 }' "$HASHFILE")"
-		else
-			echo "$ROOTDEV: Computing hashes: this will take a while..."
-			veritysetup format \
-				--debug \
-				"${ROOTDEV}" \
-				"${HASHDEV}" |
-				tee "$TMP/verity.log" ||
-				die "$ROOTDEV: unable to compute hashes"
-
-			HASH="$(awk '/Root hash:/ { print $3 }' "$TMP/verity.log")"
-		fi
-
-		if [ -z "$HASH" ]; then
-			die "$ROOTDEV: root hash not in log?"
-		fi
-
-		ROOT_ARGS="\
-			root=/dev/mapper/vroot \
-			fsck.mode=skip \
-			verity.hashdev=${HASHDEV} \
-			verity.rootdev=${ROOTDEV} \
-			verity.hash=$HASH \
-		"
-	else
-		warn "SIP mode is not enabled"
-		ROOT_ARGS="\
-			root=${ROOTDEV}
-		"
-	fi
-
 	install-kernel "$LINUX_TARGET" \
 		"$VER" \
 		"$LINUX_COMMANDLINE" \
@@ -1308,122 +1081,6 @@ linux-sign() {
 		# so that repeat signing can be done more quickly
 		cp "$TMP/verity.log" "$OUTDIR"
 	fi
-}
-
-########################################
-
-recovery_sign_usage='
-## recovery-sign
-Usage:
-```
-safeboot recovery-sign [kernel command line...]
-```
-
-Sign the Linux kernel and initrd into the EFI boot manager
-`recovery` entry.  Typically this only needs to be done once
-and after validating that the system can boot with it, you
-should not have to re-run this command.
-
-You will need the Yubikey or x509 password as well as root
-accesss to perform this action.
-
-If SIP is enabled the root device will be marked read-only
-for the reboot and fscked will not been run on boot.
-
-Use `safeboot remount` to remount `/` as read-write when
-in recovery mode, and then `safeboot remount ro` to restore
-it to read-only mode before signing the hashes.
-'
-
-usage+=$recovery_sign_usage
-commands+="|recovery-sign"
-
-recovery-sign() {
-	show_help "$1" "$recovery_sign_usage"
-	#rootdev-check -
-	if [ ! -e ${ESP_LIST} ]; then
-		return 2
-	fi
-
-	if [ -n "$1" ]; then
-		VER="$1"
-		shift
-	else
-		VER=""
-	fi
-
-	if [ "$SIP" == 1 ]; then
-		# ensure that the root file system is really
-		# read-only; otherwise it will corrupt the hashes
-		ROOT_ARGS="blockdev.ro=${ROOTDEV} fsck=skip"
-	else
-		# allow the root filesystem to be rw, since
-		# /var is probably not separated and services won't start
-		ROOT_ARGS=""
-	fi
-
-	install-kernel "${RECOVERY_TARGET}" \
-		"$VER" \
-		"$RECOVERY_COMMANDLINE" \
-		"$ROOT_ARGS" \
-		"safeboot.mode=$RECOVERY_TARGET" \
-		"$@" ||
-		die "Kernel signing failed!"
-}
-
-reboot() {
-	umount /boot/efi
-	umount /boot
-	mount -o ro,remount "$ROOTDEV"
-	sync
-	sync
-	sync
-
-	warn "Initiating reboot!"
-	sleep 2
-	sync
-	sync
-	sync
-
-	if [ -x "/usr/bin/reboot" ]; then
-		# busybox reboot, no init to go through
-		exec /usr/bin/reboot -f
-	fi
-	if [ -x "/sbin/reboot" ]; then
-		# normal reboot process
-		exec /sbin/reboot
-	fi
-}
-
-########################################
-
-recovery_reboot_usage='
-## recovery-reboot
-Usage:
-```
-safeboot recovery-reboot
-```
-
-Configure the EFI boot manager so that the `BootNext` is the recovery
-target and reboot the machine.  This command requires root access to
-update the EFI variables and will also require the disk encryption
-recovery key since the TPM will not unseal the disk automatically for
-recovery mode.
-
-**NOTE!** This will reboot the machine!
-'
-
-usage+=$recovery_reboot_usage
-commands+="|recovery-reboot"
-
-recovery-reboot() {
-	show_help "$1" "$recovery_reboot_usage"
-	efi_bootnext "${RECOVERY_TARGET}" ||
-		die "${RECOVERY_TARGET}: unable to select for next boot"
-
-	warn "Rebooting in 3 seconds"
-	sleep 3
-	reboot
 }
 
 bootnext_usage='
@@ -1444,345 +1101,6 @@ commands+="|bootnext"
 bootnext() {
 	show_help "$1" "$bootnext_usage"
 	efi_bootnext "${1:-recovery}"
-}
-
-########################################
-
-# Remount a filesystem as read-only.
-# If it fails, report which processes have write access or
-# temporary deleted files still open.
-
-remount_ro() {
-	rootdev-check -
-
-	DEV="${1:-${ROOTDEV}}"
-	KILLALL="$2"
-
-	if [ "$(blockdev --getro "${DEV}")" == 1 ]; then
-		warn "${DEV}: already read-only"
-		return 0
-	fi
-
-	# systemd often ends up holding an open file, so tell init
-	# to reload its status
-	telinit u
-
-	warn "${DEV}: remounting read-only"
-	if mount -o ro,noatime,remount "${DEV}"; then
-
-		warn "${DEV}: forcing fsck"
-		fsck.ext4 -f "${DEV}" ||
-			die "${DEV}: Could not fsck"
-
-		warn "${DEV}: setting block dev readonly"
-		blockdev --setro "${DEV}" ||
-			die "${DEV}: Could not set read-only"
-
-		return 0
-	fi
-
-	warn "${DEV}: something blocked remount. Likely processes:"
-	lsof +f -- "${DEV}" 2>&- |
-		awk '$4 == "DEL" || $4 ~ /[0-9][uw]$/ { print $2, $1, $3, "("$4")" }' |
-		tee "$TMP/pid.lst" ||
-		warn "lsof failed"
-
-	if [ "$KILLALL" = "killall" ]; then
-		warn "KILLING ALL PROCESSES in 5 seconds"
-		sleep 5
-		awk '{print $1}' "$TMP/pid.lst" | xargs kill
-	else
-		warn "Re-run 'safeboot remount ro killall' to kill processes"
-	fi
-
-	return 1
-}
-
-remount_rw() {
-	rootdev-check -
-
-	DEV="${1:-${ROOTDEV}}"
-
-	warn "${DEV}: remounting read-write"
-
-	blockdev --setrw "${DEV}" ||
-		die "${DEV}: Unable to mark as read-write"
-
-	mount -o rw,remount "${DEV}" ||
-		die "${DEV}: Unable to remount read-write"
-
-	if [ "$SIP" == 1 ]; then
-		warn "${DEV}: Remounted read/write; remember to re-sign the root hashes before rebooting!"
-	else
-		warn "${DEV}: Remounted read/write"
-	fi
-}
-
-########################################
-
-remount_usage='
-## remount
-Usage:
-```
-safeboot remount [ro]
-```
-
-Attempt to remount the root filesystem read/write or read-only.
-If SIP is enabled this will likely invalidate any hashes
-and require a re-signing of the root filesystem.
-
-If `ro` is specified, then the file system will be re-mounted read-only
-If there are processes blocking the remount, they will be listed.
-'
-
-usage+=$remount_usage
-commands+="|remount"
-
-remount() {
-	show_help "$1" "$remount_usage"
-	rootdev-check -
-	RW="$1"
-	shift
-
-	if [ "$RW" == "ro" ]; then
-		remount_ro "${ROOTDEV}" "$@"
-	elif [ "$RW" == "rw" ] || [ "$RW" == "" ]; then
-		remount_rw "${ROOTDEV}"
-	else
-		die "Unknown argument.$remount_usage"
-	fi
-}
-
-########################################
-
-sip_init_usage='
-## sip-init
-Usage:
-```
-safeboot sip-init [home-size-in-GB [var-size]]
-```
-
-**DANGER!** This command can mess up your root filesystem.
-There must be space in the volume group for the new entries
-It will create the volume groups for `/var` and `/home`,
-add entries to `/etc/fstab` for them with secure mount parameters,
-and makes `/tmp` a symlink into `/var/tmp`.
-'
-
-usage+=$sip_init_usage
-commands+="|sip-init"
-
-sip-init() {
-	show_help "$1" "$sip_init_usage"
-	rootdev-check -
-
-	var_size=${1:-16g}
-	home_size=${2:-80g}
-
-	warn "sip-init: Checking configuration before writing..."
-
-	root_size="$(lvdisplay --units b "${ROOTDEV}" | awk '/LV Size/{print $3}')"
-	vg="$(lvdisplay "${ROOTDEV}" | awk '/VG Name/{print $3}')"
-
-	if [ -z "$vg" ]; then
-		die "${ROOTDEV}: unknown volume group?"
-	fi
-	if [ -z "$root_size" ]; then
-		die "${ROOTDEV}: unknown size"
-	fi
-	if [ "$root_size" -gt $((16 * 1024 * 1024 * 1024)) ]; then
-		die "${ROOTDEV}: root is $root_size bytes, too large for hashes"
-	fi
-
-	# if the volume groups already exist, we don't want to overwrite them
-	if [ -e "/dev/mapper/$vg-var" ]; then
-		die "$vg-var already exists"
-	fi
-	if [ -e "/dev/mapper/$vg-home" ]; then
-		die "$vg-home already exists"
-	fi
-
-	# or if they have entries in the fstab for /home or /var
-	grep -q '\s/var\s' $PREFIX/etc/fstab &&
-		die "/var already exists in $PREFIX/etc/fstab"
-	grep -q '\s/home\s' $PREFIX/etc/fstab &&
-		die "/home already exists in $PREFIX/etc/fstab"
-
-	# make sure the signing cert exists
-	if [ ! -r "$CERT" ]; then
-		die "$CERT: signing certificate not available!"
-	fi
-
-	# and refuse to do this unless they already have a recovery image
-	entry="$(efiboot_entry ${RECOVERY_TARGET})"
-	if [ -z "$entry" ]; then
-		die "No ${RECOVERY_TARGET} in efibootmgr? Too dangerous!"
-	fi
-
-	##### And now it gets really dangerous #####
-
-	cat >&2 <<'EOF'
-     _                             _
-  __| | __ _ _ __   __ _  ___ _ __| |
- / _` |/ _` | '_ \ / _` |/ _ \ '__| |
-| (_| | (_| | | | | (_| |  __/ |  |_|
- \__,_|\__,_|_| |_|\__, |\___|_|  (_)
-===================|___/=============
-
-This will make irrevocable changes to the disk!
-You must have the security key or password for
-the UEFI Platform Key to procede.
-
-EOF
-	read -r -p "Are you really really sure? " really_do_it
-	if [ "$really_do_it" != "y" ]; then
-		die "Not configuring SIP!"
-	fi
-	read -r -p "WARNING: Do you have the security key? " really_do_it
-	if [ "$really_do_it" != "y" ]; then
-		die "Not configuring SIP!"
-	fi
-
-	remount "rw" ||
-		die "Root file system is not writable"
-
-	# shellcheck disable=SC2034
-	die_msg="
-********************************************************
-***** THIS IS BAD: Your system might be broken now *****
-********************************************************
-
-Please contact the developers with a report of what happened.
-You can try to look back through the log messages to see if
-you can unwind the changes that were made.
-"
-
-	# create the volume groups
-	lvcreate --size 1g -n hashes "$vg" ||
-		die "$vg-hashes: unable to create volume"
-
-	lvcreate --size "$var_size" -n var "$vg" ||
-		die "$vg-var: unable to create volume"
-
-	lvcreate --size "$home_size" -n home "$vg" ||
-		die "$vg-home: unable to create volume"
-
-	# relocate /var and /home to the new volumes
-	for lv in var home; do
-		mkfs.ext4 "/dev/mapper/$vg-$lv" ||
-			die "$vg-$lv: unable to make filesystem"
-
-		warn "Adding /$lv to fstab"
-		echo >>"$PREFIX/etc/fstab" \
-			"/dev/mapper/$vg-$lv /$lv ext4 nosuid,nodev 0 1" ||
-			die "unable to add /$lv to fstab"
-
-		mkdir -p "/tmp-$lv" ||
-			die "/tmp-$lv: unable to create temporary mount point"
-
-		mount "/dev/mapper/$vg-$lv" "/tmp-$lv" ||
-			die "$vg-$lv: unable to mount temporary mount point"
-
-		warn "Moving contents of /$lv to new filesystem"
-		mv "/$lv/"* "/tmp-$lv/" ||
-			warn "$vg-$lv: unable to move everything from old mount"
-
-		umount "/tmp-$lv" ||
-			die "$vg-$lv: unable to unmount"
-
-		mount "/$lv" ||
-			die "/$lv: unable to remount new file system"
-	done
-
-	# and fix up /tmp
-	warn "/tmp: Creating new temporary directory"
-	rm -rf /tmp ||
-		die "/tmp: unable to clean up"
-
-	ln -sf ./var/tmp /tmp ||
-		die "/tmp: unable to create symlink"
-
-	if [ "$SIP" != 1 ]; then
-		warn "Adding SIP=1 to local.conf"
-		(
-			echo "# Added by sip-init"
-			echo "SIP=1"
-		) >>"$PREFIX$DIR/local.conf" ||
-			die "$PREFIX$DIR/safeboot.conf: unable to enable SIP?"
-	fi
-
-	if [ -z "$HASHDEV" ]; then
-		HASHDEV="/dev/mapper/$vg-hashes"
-		warn "$PREFIX$DIR/local.conf: adding HASHDEV=$HASHDEV"
-		echo "HASHDEV=\"$HASHDEV\"" >>"$PREFIX$DIR/local.conf" ||
-			die "$PREFIX$DIR/local.conf: unable to add HASHDEV"
-	fi
-
-	warn "${ROOTDEV}: now configured for SIP hashed on ${HASHDEV}, but not yet signed!"
-	warn "${ROOTDEV}: reboot and immediately run 'safeboot linux-sign'"
-}
-
-########################################
-
-unlock_usage='
-## unlock
-Usage:
-```
-safeboot unlock
-```
-
-This is a recovery shell command to scan the `/etc/crypttab` for devices
-and call `cryptsetup luksOpen` on each of them, and then scan the LVM groups
-for volumes.  After it succeeds you can call `safeboot mount` to mount
-the root filesystem (read-only) on `/root`.
-'
-
-usage+=$unlock_usage
-commands+="|unlock"
-
-unlock_entry() {
-	cryptsetup luksOpen \
-		"$(resolve_device_spec "$CRYPTTAB_SOURCE")" \
-		"$CRYPTTAB_NAME"
-}
-
-unlock() {
-	. /lib/cryptsetup/functions
-
-	TABFILE=/cryptroot/crypttab \
-		crypttab_foreach_entry unlock_entry ||
-		die "unable to unlock every encrypted disk"
-
-	lvm pvscan
-	lvm vgscan
-	lvm lvscan
-}
-
-mount_all_usage='
-## mount-all
-Usage:
-```
-safeboot mount-all
-```
-
-This is a recovery shell command to attempt to mount the root disk read-only
-on `/root`, as well as the `/boot` and `/boot/efi` if they exist in
-`/root/etc/fstab`.
-'
-usage+=$mount_all_usage
-commands+="|mount-all"
-
-mount-all() {
-	mkdir -p /root
-
-	warn "$ROOTDEV: setting to read-only"
-	blockdev --setro "$ROOTDEV"
-
-	mount -o ro "$ROOTDEV" /root ||
-		die "$ROOTDEV: unable to mount"
-
-	mount_by_uuid /boot /root/etc/fstab
-	mount_by_uuid /boot/efi /root/etc/fstab
 }
 
 kernel_keep_versions() {
@@ -1855,7 +1173,7 @@ case "$command" in
 	exit 0
 	;;
 #$commands)
-yubikey-init | yubikey-pubkey | key-init | uefi-sign-keys | uefi-set-keys | luks-seal | pcrs-sign | sign | unify-kernel | sign-kernel | install-kernel | linux-sign | recovery-sign | reboot | recovery-reboot | remount | tpm2_trial_extend | sip-init | bootnext | unlock | mount-all)
+key-init | uefi-sign-keys | uefi-set-keys | luks-seal | pcrs-sign | sign | unify-kernel | sign-kernel | install-kernel | linux-sign | reboot | tpm2_trial_extend | bootnext)
 	$command "$@"
 	;;
 *)
