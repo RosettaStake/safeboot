@@ -1083,6 +1083,93 @@ linux-sign() {
 	fi
 }
 
+########################################
+
+recovery_sign_usage='
+## recovery-sign
+Usage:
+```
+safeboot recovery-sign [kernel command line...]
+```
+Sign the Linux kernel and initrd into the EFI boot manager
+`recovery` entry.  Typically this only needs to be done once
+and after validating that the system can boot with it, you
+should not have to re-run this command.
+You will need the Yubikey or x509 password as well as root
+accesss to perform this action.
+If SIP is enabled the root device will be marked read-only
+for the reboot and fscked will not been run on boot.
+Use `safeboot remount` to remount `/` as read-write when
+in recovery mode, and then `safeboot remount ro` to restore
+it to read-only mode before signing the hashes.
+'
+
+usage+=$recovery_sign_usage
+commands+="|recovery-sign"
+
+recovery-sign() {
+	show_help "$1" "$recovery_sign_usage"
+	#rootdev-check -
+	if [ ! -e ${ESP_LIST} ]; then
+		return 2
+	fi
+
+	if [ -n "$1" ]; then
+		VER="$1"
+		shift
+	else
+		VER=""
+	fi
+
+	if [ "$SIP" == 1 ]; then
+		# ensure that the root file system is really
+		# read-only; otherwise it will corrupt the hashes
+		ROOT_ARGS="blockdev.ro=${ROOTDEV} fsck=skip"
+	else
+		# allow the root filesystem to be rw, since
+		# /var is probably not separated and services won't start
+		ROOT_ARGS=""
+	fi
+
+	install-kernel "${RECOVERY_TARGET}" \
+		"$VER" \
+		"$RECOVERY_COMMANDLINE" \
+		"$ROOT_ARGS" \
+		"safeboot.mode=$RECOVERY_TARGET" \
+		"$@" ||
+		die "Kernel signing failed!"
+}
+
+########################################
+
+recovery_reboot_usage='
+## recovery-reboot
+Usage:
+```
+safeboot recovery-reboot
+```
+Configure the EFI boot manager so that the `BootNext` is the recovery
+target and reboot the machine.  This command requires root access to
+update the EFI variables and will also require the disk encryption
+recovery key since the TPM will not unseal the disk automatically for
+recovery mode.
+**NOTE!** This will reboot the machine!
+'
+
+usage+=$recovery_reboot_usage
+commands+="|recovery-reboot"
+
+recovery-reboot() {
+	show_help "$1" "$recovery_reboot_usage"
+	efi_bootnext "${RECOVERY_TARGET}" ||
+		die "${RECOVERY_TARGET}: unable to select for next boot"
+
+	warn "Rebooting in 3 seconds"
+	sleep 3
+	reboot
+}
+
+
 bootnext_usage='
 ## bootnext
 Usage:
@@ -1173,7 +1260,7 @@ case "$command" in
 	exit 0
 	;;
 #$commands)
-key-init | uefi-sign-keys | uefi-set-keys | luks-seal | pcrs-sign | sign | unify-kernel | sign-kernel | install-kernel | linux-sign | reboot | tpm2_trial_extend | bootnext)
+key-init | uefi-sign-keys | uefi-set-keys | luks-seal | pcrs-sign | sign | unify-kernel | sign-kernel | install-kernel | linux-sign | recovery-sign | recovery-reboot | tpm2_trial_extend | bootnext)
 	$command "$@"
 	;;
 *)
