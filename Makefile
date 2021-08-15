@@ -183,3 +183,7 @@ fake-mount:
 	mount --bind `pwd`/initramfs/scripts/safeboot-bootmode /etc/initramfs-tools/scripts/init-top/safeboot-bootmode
 fake-unmount:
 	mount | awk '/safeboot/ { print $$3 }' | xargs umount
+
+
+build:
+	mkdir -p $@
