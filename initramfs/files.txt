@@ -20,7 +20,6 @@ symlink ../lib64 lib/x86_64-linux-gnu
 ./functions.sh etc/safeboot
 ./safeboot.conf etc/safeboot
 /usr/bin/openssl
-/usr/bin/curl
 #/usr/bin/ping
 #/usr/bin/efibootmgr
 

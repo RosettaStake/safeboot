@@ -9,7 +9,7 @@ BINS += bin/sign-efi-sig-list.safeboot
 BINS += bin/tpm2-totp
 BINS += bin/tpm2
 
-all: $(BINS) update-certs
+all: $(BINS)
 
 #
 # sbsign needs to be built from a patched version to avoid a
@@ -130,8 +130,6 @@ requirements: | build
 		libqrencode-dev \
 		efitools \
 		gnu-efi \
-		opensc \
-		libengine-pkcs11-openssl \
 		build-essential \
 		binutils-dev \
 		git \
@@ -141,24 +139,8 @@ requirements: | build
 		autoconf-archive \
 		initramfs-tools \
 		help2man \
-		libssl-dev \
 		uuid-dev \
 		shellcheck \
-		curl \
-		libcurl4-openssl-dev \
-		expect \
-		socat \
-		libseccomp-dev \
-		seccomp \
-		gnutls-bin \
-		libgnutls28-dev \
-		libtasn1-6-dev \
-		ncurses-dev \
-		gnupg2 \
-		flex \
-		bison \
-		libelf-dev \
-		libjson-glib-dev \
 
 
 # Remove the temporary files and build stuff
@@ -191,17 +173,6 @@ shellcheck:
 	; do \
 		shellcheck $$file functions.sh ; \
 	done
-
-# Fetch several of the TPM certs and make them usable
-# by the openssl verify tool.
-# CAB file from Microsoft has all the TPM certs in DER
-# format.  openssl x509 -inform DER -in file.crt -out file.pem
-# https://docs.microsoft.com/en-us/windows-server/security/guarded-fabric-shielded-vm/guarded-fabric-install-trusted-tpm-root-certificates
-# However, the STM certs in the cab are corrupted? so fetch them
-# separately
-update-certs:
-	#./refresh-certs
-	c_rehash certs
 
 # Fake an overlay mount to replace files in /etc/safeboot with these
 fake-mount:
