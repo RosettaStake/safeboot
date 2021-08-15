@@ -6,11 +6,6 @@ sbin/safeboot-tpm-unseal	usr/sbin/
 safeboot.conf			etc/safeboot/
 functions.sh			etc/safeboot/
 
-# TPM certs and a script to refresh them
-tpm-certs.txt			etc/safeboot/
-refresh-certs			etc/safeboot/
-certs/*				etc/safeboot/certs/
-
 # Compiled with modifications from source
 # to add support for the pkcs11 engine (sbsign),
 # hostnames and small qrcodes (tpm2-totp), 

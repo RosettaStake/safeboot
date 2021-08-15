@@ -139,9 +139,12 @@ requirements: | build
 		autoconf-archive \
 		initramfs-tools \
 		help2man \
+		libssl-dev \
 		uuid-dev \
 		shellcheck \
-
+		curl \
+		libjson-c-dev \
+		libcurl4-openssl-dev \
 
 # Remove the temporary files and build stuff
 clean:
