@@ -57,16 +57,13 @@ warn "TPM mode=$MODE pcrs=$PCRS $BOOTMODE_PCR"
 tpm2 pcrread >&2 \
 	'sha256:0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16'
 
-if [ "$MODE" = "recovery" ] \
-|| [ -r "/tmp/unseal-failed" ] \
-; then
+if [ -r "/tmp/unseal-failed" ]; then
 	warn "Falling back to user pass phrase"
 
 	# retrieve a tpmtotp attestation so that the user knows
 	# that the firmware is unmodified and that it is safe to
 	# enter their credentials.
-	totp="$(/usr/sbin/tpm2-totp --time calculate || echo TPM TOTP FAILED)"
-	msg="$totp $MODE
+	msg="
 
 Enter recovery key for $CRYPTTAB_SOURCE ($CRYPTTAB_NAME): "
 
@@ -120,8 +117,7 @@ else
 			# retrieve a tpmtotp attestation so that the user knows
 			# that the firmware is unmodified and that it is safe to
 			# enter their credentials.
-			totp="$(/usr/sbin/tpm2-totp --time calculate || echo TPM TOTP FAILED)"
-			msg="$totp $MODE (Try $tries)
+			msg="
 
 Enter unseal PIN for $CRYPTTAB_SOURCE ($CRYPTTAB_NAME): "
 

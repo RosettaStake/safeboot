@@ -11,10 +11,6 @@ functions.sh			etc/safeboot/
 # hostnames and small qrcodes (tpm2-totp), 
 # and bundle all tpm2 applications in a single script (tpm2)
 bin/sbsign.safeboot		usr/sbin/
-bin/sign-efi-sig-list.safeboot	usr/sbin/
-bin/tpm2-totp			usr/sbin/
-bin/tpm2			usr/sbin/
 
 # scripts to interface with secure boot in the initramfs
 initramfs/hooks/safeboot-hooks	etc/initramfs-tools/hooks/
-initramfs/scripts/safeboot-bootmode etc/initramfs-tools/scripts/init-top/

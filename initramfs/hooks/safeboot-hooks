@@ -43,9 +43,8 @@ fi
 
 # Programs required to unseal the secrets and decrypt the disk
 copy_exec /usr/bin/sha256sum
-copy_exec /usr/sbin/tpm2-totp
-copy_exec /usr/sbin/tpm2
-copy_exec /lib/x86_64-linux-gnu/libtss2-tcti-device.so.0
+copy_exec /usr/bin/tpm2
+#copy_exec /lib/x86_64-linux-gnu/libtss2-tcti-device.so.0
 manual_add_modules nls_iso8859-1
 
 # Things so that the recovery shell is easier to use and can
@@ -57,17 +56,6 @@ copy_exec /usr/bin/xxd /sbin/
 copy_exec /usr/bin/dd
 copy_exec /usr/bin/chattr
 copy_exec /usr/bin/objcopy
-#copy_exec /usr/bin/tpm2_flushcontext
-#copy_exec /usr/bin/tpm2_unseal
-#copy_exec /usr/bin/tpm2_pcrread
-#copy_exec /usr/bin/tpm2_nvread
-#copy_exec /usr/bin/tpm2_pcrextend
-#copy_exec /usr/bin/tpm2_loadexternal
-#copy_exec /usr/bin/tpm2_startauthsession
-#copy_exec /usr/bin/tpm2_policypcr
-#copy_exec /usr/bin/tpm2_policynv
-#copy_exec /usr/bin/tpm2_policyauthorize
-#copy_exec /usr/bin/tpm2_verifysignature
 copy_exec /bin/efibootmgr
 copy_exec /sbin/safeboot
 copy_exec /sbin/sbsign.safeboot
