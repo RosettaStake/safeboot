@@ -30,7 +30,10 @@ requirements: | build
 	DEBIAN_FRONTEND=noninteractive \
 	apt install -y \
 		efitools \
-		tpm2-tools
+		tpm2-tools \
+		libc6 \
+		libssl1.1 \
+		libuuid1
 
 #		devscripts \
 #		debhelper \

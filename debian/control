@@ -2,7 +2,7 @@ Source: safeboot
 Section: admin
 Priority: optional
 Maintainer: Trammell Hudson <hudson@trmm.net>
-Build-Depends: efitools, tpm2-tools
+Build-Depends: efitools, tpm2-tools, libc6, libssl1.1, libuuid1
 Standards-Version: 4.4.1
 Homepage: https://github.com/osresearch/safeboot/
 #Vcs-Browser: https://salsa.debian.org/debian/safeboot
@@ -10,7 +10,7 @@ Homepage: https://github.com/osresearch/safeboot/
 
 Package: safeboot
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, efitools, tpm2-tools
+Depends: ${shlibs:Depends}, ${misc:Depends}, efitools, tpm2-tools, libc6, libssl1.1, libuuid1
 Description: Boot Linux more safely
  Makes the Linux boot process slightly safer by enabling UEFI Secure Boot,
  signing kernel and initrd with Yubikey hardware tokens, storing disk
