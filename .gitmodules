@@ -1,16 +1,3 @@
 [submodule "sbsigntools"]
 	path = sbsigntools
 	url = https://github.com/RosettaStake/sbsigntools
-[submodule "efitools"]
-	path = efitools
-	url = https://git.kernel.org/pub/scm/linux/kernel/git/jejb/efitools.git
-[submodule "tpm2-totp"]
-	path = tpm2-totp
-	url = https://github.com/osresearch/tpm2-totp
-	branch = static-link
-[submodule "tpm2-tools"]
-	path = tpm2-tools
-	url = https://github.com/tpm2-software/tpm2-tools
-[submodule "tpm2-tss"]
-	path = tpm2-tss
-	url = https://github.com/tpm2-software/tpm2-tss
