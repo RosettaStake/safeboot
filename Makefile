@@ -82,6 +82,7 @@ fake-mount:
 	mount --bind `pwd`/functions.sh /etc/safeboot/functions.sh
 	mount --bind `pwd`/sbin/safeboot /sbin/safeboot
 	mount --bind `pwd`/sbin/safeboot-tpm-unseal /sbin/safeboot-tpm-unseal
+	mount --bind `pwd`/initramfs/scripts/safeboot-bootmode /etc/initramfs-tools/scripts/init-top/safeboot-bootmode
 fake-unmount:
 	mount | awk '/safeboot/ { print $$3 }' | xargs umount
 

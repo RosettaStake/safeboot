@@ -1,0 +1,60 @@
+#!/bin/bash
+# Ensure that the boot mode PCR is set by the init-top initramfs.
+# This is run in the initramfs context, not in the normal user space.
+#
+# turn off "echo flags are undefined"
+# shellcheck disable=SC2016 disable=SC1091 disable=SC2039
+
+PREFIX="safeboot-bootmode"
+
+case $1 in
+    prereqs)
+        echo "console_setup"
+        exit 0
+        ;;
+esac
+
+BOOTMODE_PCR=14
+PCRS=0
+
+for f in \
+	/scripts/functions \
+	/etc/safeboot/functions.sh \
+	/etc/safeboot/safeboot.conf \
+	/etc/safeboot/local.conf \
+; do
+	if [ -r "$f" ]; then
+		. "$f" || warn "$f: failed to source"
+	fi
+done
+
+MODE=unknown
+
+# shellcheck disable=SC2013
+for arg in $(cat /proc/cmdline)
+do
+    case "$arg" in
+        safeboot.mode=*)
+            MODE=${arg#safeboot.mode=}
+            ;;
+        safeboot.mode-pcr=*)
+            BOOTMODE_PCR=${arg#safeboot.mode-pcr=}
+            ;;
+        *)
+            ;;
+    esac
+done
+
+warn "TPM mode=$MODE pcrs=$PCRS $BOOTMODE_PCR"
+
+tpm2 pcrread >&2 \
+	"sha256:$PCRS,$BOOTMODE_PCR"
+
+#
+# Extend PCR14 with the boot mode so that recovery
+# boots aren't able to access the sealed disk key.
+#
+echo -n "$MODE" | tpm2_extend "$BOOTMODE_PCR" >&2 \
+|| log_failure_msg "$PREFIX: unable to extend boot mode PCR $BOOTMODE_PCR"
+
+log_success_msg "$PREFIX: boot mode $MODE"

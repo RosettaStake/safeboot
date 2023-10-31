@@ -14,3 +14,4 @@ bin/sbsign.safeboot		usr/sbin/
 
 # scripts to interface with secure boot in the initramfs
 initramfs/hooks/safeboot-hooks	etc/initramfs-tools/hooks/
+initramfs/scripts/safeboot-bootmode etc/initramfs-tools/scripts/init-top/
