@@ -44,7 +44,7 @@ fi
 # Programs required to unseal the secrets and decrypt the disk
 copy_exec /usr/bin/sha256sum
 copy_exec /usr/bin/tpm2
-#copy_exec /lib/x86_64-linux-gnu/libtss2-tcti-device.so.0
+copy_exec /lib/x86_64-linux-gnu/libtss2-tcti-device.so.0
 manual_add_modules nls_iso8859-1
 
 # Things so that the recovery shell is easier to use and can

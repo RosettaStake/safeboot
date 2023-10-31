@@ -49,27 +49,6 @@ requirements: | build
 		gnu-efi \
 		help2man
 
-#		devscripts \
-#		debhelper \
-#		efitools \
-#		gnu-efi \
-#		build-essential \
-#		binutils-dev \
-#		git \
-#		pkg-config \
-#		automake \
-#		autoconf \
-#		autoconf-archive \
-#		initramfs-tools \
-#		help2man \
-#		libssl-dev \
-#		uuid \
-#		uuid-runtime \
-#		shellcheck \
-#		curl \
-#		libjson-c-dev \
-#		libcurl4-openssl-dev \
-
 # Remove the temporary files and build stuff
 clean:
 	rm -rf bin $(SUBMODULES) build
