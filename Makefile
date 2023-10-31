@@ -33,7 +33,8 @@ requirements: | build
 		tpm2-tools \
 		libc6 \
 		libssl1.1 \
-		libuuid1
+		libuuid1 \
+		xxd
 
 #		devscripts \
 #		debhelper \
