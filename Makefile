@@ -29,12 +29,25 @@ sbsigntools/autogen.sh:
 requirements: | build
 	DEBIAN_FRONTEND=noninteractive \
 	apt install -y \
+		devscripts \
+		debhelper \
 		efitools \
 		tpm2-tools \
 		libc6 \
-		libssl1.1 \
-		libuuid1 \
-		xxd
+		libssl-dev \
+		xxd \
+		automake \
+		autoconf \
+		binutils-dev \
+		libssl-dev \
+		initramfs-tools \
+		curl \
+		pkg-config \
+		uuid \
+		uuid-runtime \
+		uuid-dev \
+		gnu-efi \
+		help2man
 
 #		devscripts \
 #		debhelper \

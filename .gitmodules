@@ -1,3 +1,3 @@
 [submodule "sbsigntools"]
 	path = sbsigntools
-	url = git@github.com:RosettaStake/sbsigntools.git
+	url = https://github.com/RosettaStake/sbsigntools.git
