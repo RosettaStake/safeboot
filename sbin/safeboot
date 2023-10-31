@@ -359,17 +359,23 @@ pcrs-sign() {
 			tpm2 pcrread -o "$TMP/pcrs.bin" "sha256:$PCRS" ||
 				die "Unable to read TPM PCRs"
 			linux="$mountpoint/$EFIDIR/$LINUX_TARGET/$kver/linux.efi"
+			vmlinuz="/boot/vmlinuz-$kver"
+			echo $vmlinuz
 			# Check to see if the PCR4 matches the expected value
 			# for the Linux kernel (which will be loaded as the boot application).
 			# This works on the Thinkpad X1, which extends PCR4
 			# with EFI_EV_SEPARATOR and then the PE hash of the EFI_BOOT_APPLICATION
 			linux_hash="$(sbsign.safeboot --hash-only "$linux" || die "unable to hash")"
+			vmlinuz_hash="$(sbsign.safeboot --hash-only "$vmlinuz" || die "unable to hash")"
+			echo $linux_hash
+			echo $vmlinuz_hash
 			ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend 0)"
 			#pcr4_computed="$(echo -n "${ev_sep}${linux_hash}" | hex2bin | sha256)"
 
 			ev_act="$(echo -n "Calling EFI Application from Boot Option" | tpm2_trial_extend 0)"
 			ex_ev_sep="$(echo "00000000" | hex2bin | tpm2_trial_extend "$ev_act")"
 			pcr4_computed="$(echo -n "${ex_ev_sep}${linux_hash}" | hex2bin | sha256)"
+			pcr4_computed="$(echo -n  "${pcr4_computed}${vmlinuz_hash}" | hex2bin | sha256)"
 			# Predict pcr5
 			gpt_header="$(dd if=/dev/$dev bs=1 skip=512 count=92 | xxd -p | tr -d '\n')"
 			number_of_partitions="$(ls /sys/block/$dev/*/partition | wc -l)"
@@ -378,7 +384,7 @@ pcrs-sign() {
 			number_of_partitions_hex="$(printf "%02X00000000000000" $number_of_partitions)"
 			gpt_hash="$(echo -n "$gpt_header$number_of_partitions_hex$gpt_entries" | hex2bin | sha256)"
 			pcr5_computed="$(echo -n "$ev_sep$gpt_hash" | hex2bin | sha256)"
-			pcr5_computed="$(echo -n "Exit Boot Services Returned with Failure" | tpm2_trial_extend $pcr5_computed)"
+			#pcr5_computed="$(echo -n "Exit Boot Services Returned with Failure" | tpm2_trial_extend $pcr5_computed)"
 			pcr5_computed="$(echo -n "Exit Boot Services Invocation" | tpm2_trial_extend $pcr5_computed)"
 			pcr5_computed="$(echo -n "Exit Boot Services Returned with Success" | tpm2_trial_extend $pcr5_computed)"
 
@@ -518,6 +524,7 @@ luks-seal() {
 		warn "!!! $PREFIX/usr/sbin/safeboot is not installed; this will probably not work"
 	fi
 
+
 	#	if [ "$(wc -l < "$PREFIX/etc/crypttab")" -ne 1 ]; then
 	#		die "!!! $PREFIX/etc/crypttab must have only one entry"
 	#	fi
@@ -545,11 +552,9 @@ luks-seal() {
 		fi
 		devs+=($t)
 	done
-
 	# Use a tmpfs mount instead of just a temp directory so that
 	# the disk encryption key doesn't touch a persistent disk.
 	mount_tmp
-
 	# The PCR contents are not important here, only the list of them.
 	# The signed PCR values created by pcrs_sign will be used for unsealing
 	# the contents, not these values
@@ -728,7 +733,7 @@ sign() {
 		OUT="$IN.signed"
 	fi
 
-	sbsign.safeboot \
+	sbsign \
 		$KEY_ENGINE \
 		--key "$KEY" \
 		--cert "$CERT" \
@@ -839,7 +844,7 @@ sign-kernel() {
 
 	for try in 1 2 3; do
 		warn "$signed: Signing (ignore warnings about gaps)"
-		sbsign.safeboot \
+		sbsign \
 			$KEY_ENGINE \
 			--key "$KEY" \
 			--cert "$CERT" \

@@ -127,7 +127,6 @@ requirements: | build
 	apt install -y \
 		devscripts \
 		debhelper \
-		libqrencode-dev \
 		efitools \
 		gnu-efi \
 		build-essential \
@@ -140,7 +139,8 @@ requirements: | build
 		initramfs-tools \
 		help2man \
 		libssl-dev \
-		uuid-dev \
+		uuid \
+		uuid-runtime \
 		shellcheck \
 		curl \
 		libjson-c-dev \
@@ -161,7 +161,7 @@ tar: clean
 
 package: tar
 	debuild -uc -us
-	cp ../safeboot_$(VERSION)_amd64.deb safeboot-unstable.deb
+	cp ../safeboot_$(VERSION)-1_amd64.deb safeboot-unstable.deb
 
 
 # Run shellcheck on the scripts

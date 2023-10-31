@@ -1,4 +1,4 @@
-safeboot (0.8) unstable; urgency=medium
+safeboot (0.8-1) unstable; urgency=medium
 
   * `tpm2-attest` and `attest-server` to perform attestations
   * TPM2 emulator `swtpm` built as part of emulation environment
